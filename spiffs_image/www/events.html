@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AtlasCube – Events</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="events.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="logo">
+        <span class="logo-icon">◈</span>
+        <div class="logo-stack">
+            <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+            <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+        </div>
+    </div>
+</header>
+
+<main class="card card--wide">
+    <div class="section-title">🗓️ Events &amp; Playback</div>
+
+    <nav class="tab-nav tab-nav--segmented" role="tablist">
+        <button type="button" class="tab-btn active" id="evTabEvents"
+                onclick="selectEvTab('events')">🗓️ Events</button>
+        <button type="button" class="tab-btn" id="evTabPlayback"
+                onclick="selectEvTab('playback')">🎵 Playback</button>
+    </nav>
+
+    <!-- ══════════════════════════════════════════
+         Notification look — one switch for every event
+    ══════════════════════════════════════════ -->
+    <div class="panel" id="ev_bell_panel">
+        <div class="panel-label">EVENT NOTIFICATION · ALL EVENTS</div>
+        <div class="field-group">
+            <label class="field-label">Bell symbol</label>
+            <div class="field-hint">The big 🔔 shown when an event fires. Switch it off to leave the wallpaper bare behind the event text. An event that carries its own graphic shows that instead, either way.</div>
+            <div class="theme-toggle uniform" id="ev_bell_toggle" style="width:fit-content">
+                <button type="button" class="theme-btn" id="ev_bell_on"  onclick="setEventBell(true)">🔔 Show</button>
+                <button type="button" class="theme-btn" id="ev_bell_off" onclick="setEventBell(false)">🚫 Hide</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         Form (add / edit)
+    ══════════════════════════════════════════ -->
+    <div class="panel ev-form" id="ev_form">
+        <div class="ev-form-header">
+            <span id="ev_form_title">➕ New event</span>
+            <button class="btn-secondary" onclick="evFormReset()">Clear</button>
+        </div>
+
+        <div class="ev-grid">
+            <div class="field-group" id="ev_type_group">
+                <label class="field-label">Type</label>
+                <select id="ev_type" class="field-input" onchange="evTypeChanged()">
+                    <option value="birthday">🎂 Birthday</option>
+                    <option value="nameday">🌹 Name day</option>
+                    <option value="anniversary">💍 Anniversary</option>
+                    <option value="reminder" selected>⏰ Reminder</option>
+                    <option value="voice">🗣️ Voice notification</option>
+                </select>
+            </div>
+
+            <div class="field-group">
+                <label class="field-label">Title</label>
+                <input type="text" id="ev_title" class="field-input" maxlength="63" placeholder="e.g. Ania's birthday" />
+            </div>
+
+            <div class="field-group" id="ev_source_group" style="display:none">
+                <label class="field-label">Source</label>
+                <select id="ev_source" class="field-input" onchange="evTypeChanged()">
+                    <option value="radio" selected>📻 Radio station</option>
+                    <option value="sd">💾 SD card (file or folder)</option>
+                </select>
+            </div>
+
+            <div class="field-group" id="ev_station_group" style="display:none">
+                <label class="field-label">Station</label>
+                <select id="ev_station" class="field-input"></select>
+            </div>
+
+            <div class="field-group" id="ev_sdpath_group" style="display:none">
+                <label class="field-label">SD path (file or folder)</label>
+                <input type="text" id="ev_sdpath" class="field-input"
+                       placeholder="/music/track.mp3 or /music/morning" />
+                <button type="button" class="btn-secondary" onclick="sdPickOpen()"
+                        style="margin-top:8px">📂 Browse SD…</button>
+            </div>
+
+            <div class="field-group" id="ev_volume_group" style="display:none">
+                <label class="field-label">Volume <span id="ev_volume_val">20</span></label>
+                <input type="range" id="ev_volume" class="field-input" min="0" max="100" step="1" value="20"
+                       oninput="document.getElementById('ev_volume_val').textContent = this.value" />
+            </div>
+
+            <div class="field-group" id="ev_sound_group" style="display:none">
+                <label class="field-label">Voice file (recorded from the app)</label>
+                <input type="text" id="ev_sound" class="field-input" readonly />
+                <button type="button" class="btn-secondary" id="ev_sound_play"
+                        onclick="evPlayClip()" style="margin-top:8px;display:none">▶ Play</button>
+                <audio id="ev_sound_audio" style="display:none"></audio>
+            </div>
+
+            <div class="field-group" id="ev_image_group">
+                <label class="field-label">Graphic (shown instead of the bell)</label>
+                <div class="field-hint">
+                    A picture from the SD card, or an internet wallpaper slot the device has
+                    already downloaded. Uploading converts any picture to the panel size for you.
+                    Empty = the bell symbol, or nothing at all when the bell is switched off in
+                    Settings.
+                </div>
+                <input type="text" id="ev_image_display" class="field-input" readonly
+                       value="(none)" />
+                <input type="hidden" id="ev_image" />
+                <div class="ev-image-actions">
+                    <button type="button" class="btn-secondary" onclick="sdPickOpen('image')">📂 Browse SD…</button>
+                    <button type="button" class="btn-secondary"
+                            onclick="document.getElementById('ev_image_file').click()">⬆️ Upload image…</button>
+                    <select id="ev_image_net" class="field-input" onchange="evImageUseSlot(this)">
+                        <option value="">🌐 Internet slot…</option>
+                    </select>
+                    <button type="button" class="btn-secondary" onclick="evImageClear()">✕ Clear</button>
+                </div>
+                <input type="file" id="ev_image_file" accept="image/*" style="display:none"
+                       onchange="evImageUpload(this)" />
+                <div id="ev_image_status" class="pl-hint"></div>
+            </div>
+
+            <div class="field-group" id="ev_textpos_group">
+                <label class="field-label">Text placement</label>
+                <div class="field-hint">
+                    Where the type, title and time sit on the notification screen — the bell moves
+                    with them. Over a picture they get a dark backing so they stay readable.
+                    <em>No text</em> is for artwork that already has the words on it.
+                </div>
+                <select id="ev_textpos" class="field-input">
+                    <option value="center" selected>⬛ Center</option>
+                    <option value="top">⬆️ Top</option>
+                    <option value="bottom">⬇️ Bottom</option>
+                    <option value="none">🚫 No text</option>
+                </select>
+            </div>
+
+            <div class="field-group">
+                <label class="field-label">Recurrence</label>
+                <select id="ev_recurrence" class="field-input" onchange="evRecurrenceChanged()">
+                    <option value="none">One-time</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly" id="ev_rec_monthly">Monthly</option>
+                    <option value="yearly" id="ev_rec_yearly" selected>Yearly</option>
+                </select>
+            </div>
+
+            <div class="field-group" id="ev_date_group">
+                <label class="field-label" id="ev_date_label">Date</label>
+                <input type="date" id="ev_date" class="field-input" />
+            </div>
+
+            <div class="field-group" id="ev_time_group">
+                <label class="field-label" id="ev_time_label">Time</label>
+                <input type="time" id="ev_time" class="field-input" value="08:00" />
+            </div>
+
+            <div class="field-group" id="ev_stop_toggle_group" style="display:none">
+                <label class="field-label">
+                    <input type="checkbox" id="ev_stop_enabled" onchange="evStopChanged()" />
+                    Stop playback at
+                </label>
+            </div>
+
+            <div class="field-group" id="ev_stop_time_group" style="display:none">
+                <label class="field-label">Stop time</label>
+                <input type="time" id="ev_stop_time" class="field-input" value="09:00" />
+                <div class="field-hint">A stop time at or before start means the following day.</div>
+            </div>
+
+            <div class="field-group">
+                <label class="field-label">
+                    <input type="checkbox" id="ev_enabled" checked />
+                    Enabled
+                </label>
+            </div>
+        </div>
+
+        <div class="ev-form-actions">
+            <button id="ev_save_btn" onclick="evSave()">💾 Save</button>
+            <button class="btn-secondary" id="ev_cancel_btn" onclick="evFormReset()" style="display:none">Cancel edit</button>
+        </div>
+        <div id="ev_status" class="save-status"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         List
+    ══════════════════════════════════════════ -->
+    <div class="section-gap"></div>
+    <div class="panel">
+        <div class="ev-list-header">
+            <div class="pl-hint">
+                <span id="ev_count">0</span> event(s). Click ✎ to edit, ✕ to delete.
+            </div>
+            <label class="ev-view-picker" id="ev_schedule_view_wrap" style="display:none">
+                <span>Schedule view</span>
+                <select id="ev_schedule_view" class="field-input" onchange="setScheduleView(this.value)">
+                    <option value="upcoming">Upcoming</option>
+                    <option value="daily">Daily timetable</option>
+                </select>
+            </label>
+        </div>
+        <div id="ev_list" class="ev-list"></div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         Voice files audit (events ↔ /voice) — Events tab only
+    ══════════════════════════════════════════ -->
+    <div id="ev_audit_section">
+        <div class="section-gap"></div>
+        <div class="panel">
+            <div class="ev-form-header">
+                <span>🧹 Voice files check</span>
+                <button class="btn-secondary" onclick="voiceAudit()">Run check</button>
+            </div>
+            <div class="pl-hint">
+                Cross-checks voice events against the WAVs in /voice — every voice event
+                should have its file, and every file should be used by an event.
+            </div>
+            <div id="ev_audit" class="ev-list"></div>
+        </div>
+    </div>
+
+    <!-- ── Toolbar ── -->
+    <div class="toolbar">
+        <a href="/index.html" class="tool-btn tool-link">📻 Radio</a>
+        <a href="/sd-player.html" class="tool-btn tool-link">🎵 SD Player</a>
+        <a href="/bt.html" class="tool-btn tool-link">🔵 Bluetooth</a>
+        <a href="/settings.html" class="tool-btn tool-link">⚙ Settings</a>
+    </div>
+</main>
+
+<!-- ══════════════════════════════════════════
+     SD picker (Playback source)
+══════════════════════════════════════════ -->
+<div id="sd_pick" class="sd-pick-overlay" style="display:none">
+    <div class="sd-pick-box panel">
+        <div class="ev-form-header">
+            <span id="sd_pick_title">📂 Pick SD file or folder</span>
+            <button class="btn-secondary" onclick="sdPickClose()">✕</button>
+        </div>
+        <div class="pl-hint" id="sd_pick_path" style="word-break:break-all">/</div>
+        <div id="sd_pick_list" class="ev-list" style="max-height:50vh;overflow:auto"></div>
+        <div class="ev-form-actions">
+            <button class="btn-primary" id="sd_pick_use_folder" onclick="sdPickUseFolder()">✅ Use this folder</button>
+            <button class="btn-secondary" onclick="sdPickClose()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script src="lvbin.js"></script>
+<script src="events.js"></script>
+</body>
+</html>

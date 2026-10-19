@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AtlasCube – Bluetooth</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="logo">
+        <span class="logo-icon">◈</span>
+        <div class="logo-stack">
+            <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+            <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+        </div>
+    </div>
+</header>
+
+<main class="card">
+    <div class="section-title">🔵 Bluetooth</div>
+
+    <!-- ── Audio Source ── -->
+    <section class="panel">
+        <div class="panel-label">AUDIO SOURCE</div>
+        <div class="theme-toggle" id="audioSourceToggle" style="width:fit-content">
+            <button class="theme-btn src-btn" id="srcRadioBtn" onclick="setAudioSource(false)">📻 Radio</button>
+            <button class="theme-btn src-btn" id="srcBtBtn"    onclick="setAudioSource(true)">🔵 Bluetooth</button>
+        </div>
+    </section>
+
+    <!-- ── Status ── -->
+    <section class="panel">
+        <div class="panel-label panel-label--row">
+            BLUETOOTH
+            <span id="bt_status" class="bt-status">⬤ disconnected</span>
+        </div>
+
+        <!-- BT Now Playing -->
+        <div class="now-playing" style="margin-top: 10px;">
+            <div class="np-inner">
+                <div id="bt_title"  class="station-name">---</div>
+                <div id="bt_artist" class="track-title">---</div>
+                <div id="bt_format" class="audio-info" style="margin-top: 4px;"></div>
+            </div>
+            <div id="bt_time" class="audio-info">0:00 / 0:00</div>
+        </div>
+
+        <!-- BT Transport -->
+        <div class="screen-switcher" style="margin-top: 10px;">
+            <button onclick="btTransport('bt_prev')">⏮</button>
+            <button onclick="btTransport('bt_play')">▶</button>
+            <button onclick="btTransport('bt_pause')">⏸</button>
+            <button onclick="btTransport('bt_next')">⏭</button>
+        </div>
+
+        <!-- BT Volume -->
+        <div class="panel" style="margin-top: 10px;">
+            <div class="slider-row">
+                <span class="slider-label">📶 BT Volume</span>
+                <span id="bt_vol_value" class="slider-value">15</span>
+            </div>
+            <input type="range" min="0" max="100" value="15"
+                   id="bt_volume_slider" oninput="onBtVolumeChange(this.value)" />
+        </div>
+    </section>
+
+    <!-- ── Module config ── -->
+    <section class="panel">
+        <div class="panel-label">MODULE CONFIG</div>
+
+        <!-- Volume sync (module ↔ phone) -->
+        <div class="slider-row" style="margin-top: 4px;">
+            <span class="slider-label">🔗 Volume sync</span>
+        </div>
+        <div class="theme-toggle" id="btSyncToggle" style="width:fit-content">
+            <button class="theme-btn" id="btSyncOnBtn"  onclick="setBtVolSync(true)">On</button>
+            <button class="theme-btn" id="btSyncOffBtn" onclick="setBtVolSync(false)">Off</button>
+        </div>
+    </section>
+
+    <!-- ── Console ── -->
+    <section class="panel">
+        <div class="panel-label panel-label--row">
+            CONSOLE
+            <button class="bt-toggle-btn" onclick="clearBtLog()">🗑 Clear</button>
+        </div>
+        <pre id="bt_log" class="bt-log"></pre>
+        <div class="bt-send-row">
+            <input id="bt_input" class="bt-input" placeholder="AT+STATE" />
+            <button class="btn-secondary btn-send" onclick="sendBt()">Send</button>
+        </div>
+    </section>
+
+    <!-- ── Toolbar ── -->
+    <div class="toolbar">
+        <a href="/index.html" class="tool-btn tool-link">📻 Radio</a>
+        <a href="/sd-player.html" class="tool-btn tool-link">🎵 SD Player</a>
+        <a href="/events.html" class="tool-btn tool-link">🗓 Events</a>
+        <a href="/settings.html" class="tool-btn tool-link">⚙ Settings</a>
+    </div>
+
+</main>
+
+<script src="bt.js"></script>
+</body>
+</html>

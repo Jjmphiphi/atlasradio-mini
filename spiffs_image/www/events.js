@@ -1,0 +1,1006 @@
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AtlasCube — Events editor
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TYPE_ICON = {
+    birthday:    '🎂',
+    nameday:     '🌹',
+    anniversary: '💍',
+    reminder:    '⏰',
+    voice:       '🗣️',
+    schedule:    '🎵',
+    calendar:    '📅',
+};
+
+const TYPE_LABEL = {
+    birthday:    'Birthday',
+    nameday:     'Name day',
+    anniversary: 'Anniversary',
+    reminder:    'Reminder',
+    voice:       'Voice',
+    schedule:    'Playback',
+    calendar:    'Calendar',
+};
+
+const REC_LABEL = {
+    none:    'one-time',
+    daily:   'daily',
+    weekly:  'weekly',
+    monthly: 'monthly',
+    yearly:  'yearly',
+};
+
+let events    = [];
+let stations  = [];      // playlist entries, fetched once for the alarm picker
+let editingId = null;    // null = add mode, string = edit mode
+let editingPlaybackId = null;
+let clipUrl   = null;    // object URL of the loaded voice clip (revoked on reset)
+let currentTab = 'events';  // 'events' | 'playback' (EV_SCHEDULE list)
+const SCHEDULE_VIEW_KEY = 'atlascube.events.scheduleView';
+let scheduleView = loadScheduleView();
+
+// Playback schedules share the events backend; the Playback tab just filters
+// the list to type==='schedule' and forces that type on the form.
+function isScheduleTab() { return currentTab === 'playback'; }
+
+function loadScheduleView() {
+    try {
+        return localStorage.getItem(SCHEDULE_VIEW_KEY) === 'daily' ? 'daily' : 'upcoming';
+    } catch (e) {
+        return 'upcoming';
+    }
+}
+
+function setScheduleView(value) {
+    scheduleView = value === 'daily' ? 'daily' : 'upcoming';
+    try { localStorage.setItem(SCHEDULE_VIEW_KEY, scheduleView); } catch (e) { /* private mode */ }
+    render();
+}
+
+function selectEvTab(name) {
+    if (name === currentTab) return;
+    currentTab = name;
+    document.getElementById('evTabEvents').classList.toggle('active', name === 'events');
+    document.getElementById('evTabPlayback').classList.toggle('active', name === 'playback');
+    evFormReset();
+    render();
+}
+
+async function loadStations() {
+    try {
+        const res = await fetch('/api/playlist', { cache: 'no-store' });
+        stations = await res.json();
+    } catch (e) {
+        console.error('Playlist load error', e);
+        stations = [];
+    }
+    const sel = document.getElementById('ev_station');
+    sel.innerHTML = stations.length
+        ? stations.map((s, i) =>
+            `<option value="${i}">${i + 1}. ${escapeHtml(s.name || '(unnamed)')}</option>`).join('')
+        : '<option value="0" disabled>Playlist empty — add stations first</option>';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bell symbol on the event notification screen. One switch for every event, so
+// it sits on this page even though the value itself is a display option
+// (settings.display.event_bell) patched through /api/settings.
+// ─────────────────────────────────────────────────────────────────────────────
+function paintEventBell(on) {
+    document.getElementById('ev_bell_on') .classList.toggle('active', on);
+    document.getElementById('ev_bell_off').classList.toggle('active', !on);
+}
+
+function setEventBell(on) {
+    paintEventBell(on);
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display: { event_bell: on } })
+    }).catch(console.error);
+}
+
+async function loadEventBell() {
+    let on = true;   // default on, also the fallback when settings are unreachable
+    try {
+        const res = await fetch('/api/settings', { cache: 'no-store' });
+        const s   = await res.json();
+        on = s.display?.event_bell !== false;
+    } catch (e) {
+        console.error('Settings load error', e);
+    }
+    paintEventBell(on);
+}
+
+// Show/hide form groups based on the active tab, the selected type and (for
+// playback schedules) the radio-vs-SD source.
+function evTypeChanged() {
+    const sched   = isScheduleTab();
+    const type    = sched ? 'schedule' : document.getElementById('ev_type').value;
+    const isVoice = type === 'voice';
+    const src     = document.getElementById('ev_source').value;   // radio | sd
+    const schedRadio = sched && src === 'radio';
+    const schedSd    = sched && src === 'sd';
+
+    document.getElementById('ev_type_group').style.display    = sched ? 'none' : '';
+    document.getElementById('ev_source_group').style.display  = sched ? '' : 'none';
+    document.getElementById('ev_station_group').style.display = schedRadio ? '' : 'none';
+    document.getElementById('ev_sdpath_group').style.display  = schedSd ? '' : 'none';
+    document.getElementById('ev_volume_group').style.display  = (isVoice || sched) ? '' : 'none';
+    document.getElementById('ev_sound_group').style.display   = isVoice ? '' : 'none';
+    // Schedules jump straight to the player screen — no notification, so neither
+    // the artwork nor the text placement means anything for them.
+    document.getElementById('ev_image_group').style.display   = sched ? 'none' : '';
+    document.getElementById('ev_textpos_group').style.display = sched ? 'none' : '';
+    document.getElementById('ev_bell_panel').style.display    = sched ? 'none' : '';
+    document.getElementById('ev_stop_toggle_group').style.display = sched ? '' : 'none';
+    document.getElementById('ev_time_label').textContent = sched ? 'Start time' : 'Time';
+
+    // Playback schedules support the recurrence modes that can represent an
+    // overnight stop as the following calendar day without ambiguity.
+    for (const id of ['ev_rec_monthly', 'ev_rec_yearly']) {
+        const opt = document.getElementById(id);
+        opt.hidden = sched;
+        opt.disabled = sched;
+    }
+    const rec = document.getElementById('ev_recurrence');
+    if (sched && !['none', 'daily', 'weekly'].includes(rec.value)) rec.value = 'daily';
+    evStopChanged();
+    evRecurrenceChanged();
+}
+
+function evStopChanged() {
+    const show = isScheduleTab() && document.getElementById('ev_stop_enabled').checked;
+    document.getElementById('ev_stop_time_group').style.display = show ? '' : 'none';
+}
+
+function evRecurrenceChanged() {
+    const recurrence = document.getElementById('ev_recurrence').value;
+    document.getElementById('ev_date_group').style.display = recurrence === 'daily' ? 'none' : '';
+    document.getElementById('ev_date_label').textContent =
+        recurrence === 'weekly' ? 'Weekday (choose a date)' : 'Date';
+}
+
+// Stop playback and drop the loaded clip (called when the form changes events).
+function resetClipAudio() {
+    const audio = document.getElementById('ev_sound_audio');
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    if (clipUrl) { URL.revokeObjectURL(clipUrl); clipUrl = null; }
+    document.getElementById('ev_sound_play').textContent = '▶ Play';
+}
+
+// Play/stop the voice clip. Loaded lazily as a blob so the device's
+// Content-Type/Content-Disposition (octet-stream/attachment) don't block <audio>.
+async function evPlayClip() {
+    stopRowAudio();   // don't overlap a list-row clip
+    const audio = document.getElementById('ev_sound_audio');
+    const sound = document.getElementById('ev_sound').value;
+    if (!sound) return;
+    if (!audio.paused) { audio.pause(); return; }
+    if (!audio.getAttribute('src')) {
+        try {
+            const res = await fetch('/api/sd/file?path=' +
+                                    encodeURIComponent('/voice/' + sound), { cache: 'no-store' });
+            if (!res.ok) { setStatus('Audio not found on SD', 'error'); return; }
+            clipUrl = URL.createObjectURL(await res.blob());
+            audio.src = clipUrl;
+        } catch (e) {
+            setStatus('Audio load failed', 'error');
+            return;
+        }
+    }
+    audio.play();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SD picker (Playback source) — browses /api/sd/list, picks a file or folder
+// ─────────────────────────────────────────────────────────────────────────────
+const AUDIO_EXT = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg'];
+let sdPickPath = '/';
+// Which field the picker fills: 'sdpath' (playback source — files or a whole
+// folder) or 'image' (event graphic — .bin files only).
+let sdPickTarget = 'sdpath';
+
+function isAudioFile(name) {
+    const n = name.toLowerCase();
+    return AUDIO_EXT.some(ext => n.endsWith(ext));
+}
+
+function isBinFile(name) {
+    return name.toLowerCase().endsWith('.bin');
+}
+
+function sdPickInputId() {
+    return sdPickTarget === 'image' ? 'ev_image' : 'ev_sdpath';
+}
+
+function parentPath(p) {
+    if (!p || p === '/') return '/';
+    const i = p.replace(/\/$/, '').lastIndexOf('/');
+    return i <= 0 ? '/' : p.slice(0, i);
+}
+
+function sdPickOpen(target) {
+    sdPickTarget = target === 'image' ? 'image' : 'sdpath';
+    const image = sdPickTarget === 'image';
+
+    document.getElementById('sd_pick_title').textContent =
+        image ? '📂 Pick an image (.bin)' : '📂 Pick SD file or folder';
+    // A graphic is always one file — "use this folder" would have nothing to mean.
+    document.getElementById('sd_pick_use_folder').style.display = image ? 'none' : '';
+
+    // Start from the folder of the current path if one is set, else the root. An
+    // internet slot ("net3") isn't a path, so it starts from the root as well.
+    const cur = document.getElementById(sdPickInputId()).value.trim();
+    sdPickPath = cur.startsWith('/') ? parentPath(cur) : '/';
+    document.getElementById('sd_pick').style.display = 'flex';
+    sdPickLoad(sdPickPath);
+}
+
+function sdPickClose() {
+    document.getElementById('sd_pick').style.display = 'none';
+}
+
+async function sdPickLoad(path) {
+    const listEl = document.getElementById('sd_pick_list');
+    document.getElementById('sd_pick_path').textContent = path || '/';
+    listEl.innerHTML = '<div class="pl-hint" style="padding:12px">Loading…</div>';
+    let data;
+    try {
+        const res = await fetch('/api/sd/list?path=' + encodeURIComponent(path), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+    } catch (e) {
+        listEl.innerHTML = '<div class="pl-hint" style="padding:12px;color:#e66">SD not available or path missing.</div>';
+        return;
+    }
+    sdPickPath = data.path || path || '/';
+    document.getElementById('sd_pick_path').textContent = sdPickPath;
+
+    const image   = sdPickTarget === 'image';
+    const entries = (data.entries || []);
+    const folders = entries.filter(e => e.dir).sort((a, b) => a.name.localeCompare(b.name));
+    const files   = entries.filter(e => !e.dir && (image ? isBinFile(e.name) : isAudioFile(e.name)))
+                           .sort((a, b) => a.name.localeCompare(b.name));
+
+    listEl.innerHTML = '';
+    if (sdPickPath !== '/') {
+        listEl.appendChild(sdPickRow('⬆️', '..', () => sdPickLoad(parentPath(sdPickPath))));
+    }
+    folders.forEach(f => {
+        const full = (sdPickPath === '/' ? '' : sdPickPath) + '/' + f.name;
+        listEl.appendChild(sdPickRow('📁', f.name, () => sdPickLoad(full)));
+    });
+    files.forEach(f => {
+        const full = (sdPickPath === '/' ? '' : sdPickPath) + '/' + f.name;
+        listEl.appendChild(sdPickRow(image ? '🖼️' : '🎵', f.name, () => sdPickChoose(full)));
+    });
+    if (folders.length === 0 && files.length === 0) {
+        listEl.appendChild(Object.assign(document.createElement('div'), {
+            className: 'pl-hint', style: 'padding:12px',
+            textContent: image ? 'No subfolders or .bin images here.'
+                               : 'No subfolders or audio files here.'
+        }));
+    }
+}
+
+function sdPickRow(icon, label, onClick) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'sd-pick-row';
+    row.innerHTML = `<span class="ev-icon">${icon}</span><span class="ev-title">${escapeHtml(label)}</span>`;
+    row.onclick = onClick;
+    return row;
+}
+
+function sdPickChoose(path) {
+    if (sdPickTarget === 'image') {
+        evImageSet(path);
+        evImageStatus('');
+    } else {
+        document.getElementById('ev_sdpath').value = path;
+    }
+    sdPickClose();
+}
+
+function sdPickUseFolder() {
+    sdPickChoose(sdPickPath);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Event graphic — an SD .bin or an internet wallpaper slot, shown on the
+// notification screen in place of the bell
+// ─────────────────────────────────────────────────────────────────────────────
+const EVENT_IMAGE_DIR = '/events';
+
+// Panel size, so an uploaded picture is converted to exactly what the device
+// draws. Filled at page load; the fallback is the most common panel.
+let panelMeta = { screen_w: 320, screen_h: 240 };
+
+async function loadPanelMeta() {
+    try {
+        const res = await fetch('/api/ui/profile/meta', { cache: 'no-store' });
+        if (!res.ok) return;
+        const m = await res.json();
+        if (m.screen_w > 0 && m.screen_h > 0) panelMeta = m;
+    } catch (e) {
+        console.error('Panel meta load error', e);
+    }
+}
+
+// Offer only the internet slots that actually hold an image — an empty slot
+// would silently fall back to the bell on the device.
+async function loadImageSlots() {
+    const sel = document.getElementById('ev_image_net');
+    if (!sel) return;
+    let data;
+    try {
+        const res = await fetch('/api/wallpaper/status', { cache: 'no-store' });
+        if (!res.ok) return;
+        data = await res.json();
+    } catch (e) {
+        return;
+    }
+    const filled = data.filled || [];
+    for (let i = 0; i < (data.slots || 0); i++) {
+        if (!filled[i]) continue;
+        // Counted from 1 like everywhere else in the web UI; the device's own
+        // net<N> spelling never reaches the screen (see evImageSet).
+        sel.appendChild(Object.assign(document.createElement('option'),
+            { value: 'net' + i, textContent: 'slot ' + (i + 1) }));
+    }
+}
+
+function evImageStatus(msg, cls) {
+    const el = document.getElementById('ev_image_status');
+    el.textContent = msg || '';
+    el.style.color = cls === 'error' ? '#e66' : '';
+}
+
+function isSlotRef(value) {
+    return /^net[0-9]$/.test(value);
+}
+
+// How a stored reference reads in the UI: slots by their 1-based number, the way
+// the whole web UI counts them, never the device's own "net<N>" spelling.
+function evImageLabel(raw) {
+    if (!raw) return '';
+    return isSlotRef(raw) ? '🌐 Internet slot ' + (Number(raw.slice(3)) + 1) : '💾 ' + raw;
+}
+
+// The stored value ("/events/ania.bin" or "net0") lives in a hidden field and the
+// visible one is read-only. Everything that sets the graphic goes through here so
+// the two can't drift apart.
+function evImageSet(value) {
+    const raw = (value || '').trim();
+    document.getElementById('ev_image').value = raw;
+    document.getElementById('ev_image_display').value = evImageLabel(raw) || '(none)';
+}
+
+function evImageUseSlot(sel) {
+    if (!sel.value) return;
+    evImageSet(sel.value);
+    evImageStatus('The device refetches an internet slot after every reboot, ' +
+                  'so a very early event may still get the bell.');
+    sel.value = '';
+}
+
+function evImageClear() {
+    evImageSet('');
+    evImageStatus('');
+}
+
+// Convert whatever the user picked to a panel-sized .bin and drop it in
+// /events on the card. Named after the event title so the folder stays readable.
+async function evImageUpload(input) {
+    const file = input.files && input.files[0];
+    input.value = '';                          // let the same file be picked again
+    if (!file) return;
+    if (!window.LvBin) { evImageStatus('Image encoder not loaded', 'error'); return; }
+
+    try {
+        const path = await LvBin.uploadImage(
+            file, EVENT_IMAGE_DIR, panelMeta.screen_w, panelMeta.screen_h,
+            msg => evImageStatus(msg),
+            document.getElementById('ev_title').value || file.name);
+        evImageSet(path);
+        evImageStatus('Saved as ' + path);
+    } catch (e) {
+        evImageStatus('✗ ' + e.message, 'error');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Voice files audit — cross-check voice events ↔ WAVs in /voice
+// ─────────────────────────────────────────────────────────────────────────────
+
+// List every file under /voice, returning paths relative to /voice
+// (e.g. "clip.wav", or "old/old.wav" for the legacy per-event folder scheme).
+// The app only ever nests one level deep, but recurse generically. Returns null
+// when the SD card or the /voice folder is unavailable.
+async function listVoiceFiles(dir = '/voice', prefix = '') {
+    let data;
+    try {
+        const res = await fetch('/api/sd/list?path=' + encodeURIComponent(dir), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        data = await res.json();
+    } catch (e) {
+        return null;
+    }
+    const out = [];
+    for (const e of (data.entries || [])) {
+        const rel = prefix ? prefix + '/' + e.name : e.name;
+        if (e.dir) {
+            const sub = await listVoiceFiles(dir + '/' + e.name, rel);
+            if (sub) out.push(...sub);
+        } else {
+            out.push(rel);
+        }
+    }
+    return out;
+}
+
+async function voiceAudit() {
+    const box = document.getElementById('ev_audit');
+    box.innerHTML = '<div class="pl-hint" style="padding:12px">Checking…</div>';
+
+    // Work off a fresh event list so the report reflects the current state.
+    await evLoad();
+
+    const files = await listVoiceFiles();
+    if (files === null) {
+        box.innerHTML = '<div class="pl-hint" style="padding:12px;color:#e66">' +
+            'SD card not available or /voice folder is missing.</div>';
+        return;
+    }
+
+    const voiceEvents = events.filter(e => e.type === 'voice');
+    const referenced  = new Set(voiceEvents.map(e => (e.sound || '').trim()).filter(Boolean));
+    const fileSet     = new Set(files);
+
+    // Voice events pointing at a file that isn't on the card (blank sound → missing).
+    const missing = voiceEvents.filter(e => !e.sound || !fileSet.has(e.sound.trim()));
+    // WAVs on the card that no voice event references.
+    const orphans = files.filter(f => !referenced.has(f));
+
+    if (missing.length === 0 && orphans.length === 0) {
+        box.innerHTML = '<div class="pl-hint" style="padding:12px;color:#6c6">' +
+            '✅ All voice events and files match.</div>';
+        return;
+    }
+
+    let html = '';
+    if (missing.length) {
+        html += `<div class="pl-hint" style="padding:8px 12px">⚠️ ${missing.length} ` +
+                `voice event(s) with no file in /voice:</div>`;
+        html += missing.map(e => `
+            <div class="ev-row">
+                <div class="ev-icon">🗣️</div>
+                <div class="ev-info">
+                    <div class="ev-title">${escapeHtml(e.title || '(untitled)')}</div>
+                    <div class="ev-meta">${escapeHtml(e.sound || '(no file set)')}</div>
+                </div>
+                <button class="ev-btn" title="Edit" onclick="evEdit('${e.id}')">✎</button>
+            </div>`).join('');
+    }
+    if (orphans.length) {
+        html += `<div class="pl-hint" style="padding:8px 12px">🗑️ ${orphans.length} ` +
+                `file(s) in /voice with no event:</div>`;
+        html += orphans.map(f => `
+            <div class="ev-row">
+                <div class="ev-icon">📄</div>
+                <div class="ev-info">
+                    <div class="ev-title">${escapeHtml(f)}</div>
+                </div>
+            </div>`).join('');
+    }
+    box.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Load / Render
+// ─────────────────────────────────────────────────────────────────────────────
+async function evLoad() {
+    try {
+        const res = await fetch('/api/events', { cache: 'no-store' });
+        events = await res.json();
+    } catch (e) {
+        console.error('Events load error', e);
+        setStatus('Failed to load events', 'error');
+        events = [];
+    }
+    render();
+}
+
+// Inline clip playback from a list row. One shared player; streams the WAV as a
+// blob (same reason as evPlayClip — the device serves it as octet-stream so a
+// plain <audio src> won't play). Mutually exclusive with the editor's preview.
+let rowAudio = null, rowAudioUrl = null, rowPlayBtn = null;
+
+function stopRowAudio() {
+    if (rowAudio) { rowAudio.pause(); rowAudio = null; }
+    if (rowAudioUrl) { URL.revokeObjectURL(rowAudioUrl); rowAudioUrl = null; }
+    if (rowPlayBtn) { rowPlayBtn.textContent = '▶'; rowPlayBtn = null; }
+}
+
+async function evPlayRow(btn, sound) {
+    if (rowPlayBtn === btn) { stopRowAudio(); return; }  // same button → stop
+    stopRowAudio();
+    resetClipAudio();                                    // don't overlap the editor preview
+    try {
+        const res = await fetch('/api/sd/file?path=' +
+                                encodeURIComponent('/voice/' + sound), { cache: 'no-store' });
+        if (!res.ok) { setStatus('Audio not found on SD', 'error'); return; }
+        rowAudioUrl = URL.createObjectURL(await res.blob());
+        rowAudio = new Audio(rowAudioUrl);
+        rowAudio.onended = stopRowAudio;
+        rowAudio.onerror = () => { setStatus('Playback failed', 'error'); stopRowAudio(); };
+        await rowAudio.play();
+        btn.textContent = '⏹';
+        rowPlayBtn = btn;
+    } catch (e) {
+        setStatus('Audio load failed', 'error');
+        stopRowAudio();
+    }
+}
+
+function isStopSchedule(ev) {
+    return ev.type === 'schedule' && !ev.sound && (ev.station ?? 0) < 0;
+}
+
+function playbackSchedules() {
+    const stops = new Map(events
+        .filter(ev => isStopSchedule(ev) && ev.playback_id)
+        .map(ev => [ev.playback_id, ev]));
+    return events
+        .filter(ev => ev.type === 'schedule' && !isStopSchedule(ev) && ev.playback_id)
+        .map(ev => ({ ...ev, _stop: stops.get(ev.playback_id) || null }));
+}
+
+function render() {
+    // Rows (and their ▶ buttons) are rebuilt below; stop any clip first.
+    stopRowAudio();
+
+    const sched = isScheduleTab();
+    const dailyView = sched && scheduleView === 'daily';
+    const shown = sched
+        ? playbackSchedules().filter(ev => !dailyView || ev.recurrence === 'daily')
+        : events.filter(ev => ev.type !== 'schedule');
+
+    const list = document.getElementById('ev_list');
+    const viewWrap = document.getElementById('ev_schedule_view_wrap');
+    const viewSelect = document.getElementById('ev_schedule_view');
+    viewWrap.style.display = sched ? '' : 'none';
+    viewSelect.value = scheduleView;
+    document.getElementById('ev_audit_section').style.display = sched ? 'none' : '';
+    list.innerHTML = '';
+    document.getElementById('ev_count').textContent = shown.length;
+
+    if (shown.length === 0) {
+        const what = dailyView ? 'daily playback schedules' : (sched ? 'playback schedules' : 'events');
+        list.innerHTML = `<div class="pl-hint" style="text-align:center;padding:20px 0">No ${what} yet. Fill the form above and click Save.</div>`;
+        return;
+    }
+
+    const now = new Date();   // one snapshot so the whole sort agrees on "now"
+    shown
+        .slice()
+        .sort(dailyView
+            ? sortByTimeOfDay
+            : (a, b) => sortByNextOccurrence(a, b, now))
+        .forEach(ev => list.appendChild(makeRow(ev)));
+}
+
+function makeRow(ev) {
+    const row = document.createElement('div');
+    row.className = 'ev-row' + (ev.enabled ? '' : ' disabled');
+
+    const dateStr = formatDate(ev);
+    let timeStr = `${pad2(ev.hour)}:${pad2(ev.minute)}`;
+    const recStr  = REC_LABEL[ev.recurrence] || ev.recurrence;
+    if (ev.type === 'schedule' && ev._stop) {
+        const nextDay = ev._stop.year !== ev.year || ev._stop.month !== ev.month || ev._stop.day !== ev.day;
+        timeStr += `–${pad2(ev._stop.hour)}:${pad2(ev._stop.minute)}${nextDay ? ' (+1 day)' : ''}`;
+    }
+
+    let extra = '';
+    if (ev.type === 'voice') {
+        extra = ` · 🗣️ ${escapeHtml(ev.sound || '(no audio)')} · 🔊 ${ev.volume ?? 0}`;
+    } else if (ev.type === 'schedule') {
+        if (ev.sound) {
+            extra = ` · 💾 ${escapeHtml(ev.sound)} · 🔊 ${ev.volume ?? 0}`;
+        } else {
+            const st = stations[ev.station];
+            const name = st ? st.name : `#${ev.station}`;
+            extra = ` · 📻 ${escapeHtml(name)} · 🔊 ${ev.volume ?? 0}`;
+        }
+    }
+    if (ev.image) extra += ` · ${escapeHtml(evImageLabel(ev.image))}`;
+    // Only worth saying when it isn't the default placement.
+    if (ev.type !== 'schedule' && ev.text_pos && ev.text_pos !== 'center')
+        extra += ev.text_pos === 'none' ? ' · 🚫 no text' : ` · 🔤 ${escapeHtml(ev.text_pos)}`;
+
+    row.innerHTML = `
+        <div class="ev-icon">${TYPE_ICON[ev.type] || '•'}</div>
+        <div class="ev-info">
+            <div class="ev-title">${escapeHtml(ev.title)}</div>
+            <div class="ev-meta">${dateStr} · ${timeStr}${extra}</div>
+        </div>
+        <span class="ev-tag">${recStr}</span>
+        <label class="ev-tag" style="cursor:pointer">
+            <input type="checkbox" ${ev.enabled ? 'checked' : ''}
+                   onchange="evToggleEnabled('${ev.type === 'schedule' ? ev.playback_id : ev.id}', this.checked, ${ev.type === 'schedule'})" />
+            on
+        </label>
+        ${ev.type === 'voice'
+            ? (ev.sound
+                ? `<button class="ev-btn" title="Play" onclick="evPlayRow(this, '${ev.sound}')">▶</button>`
+                : `<span class="ev-btn" title="No audio clip — will ring the reminder melody"
+                         style="cursor:default;opacity:.6">⚠️</span>`)
+            : ''}
+        <button class="ev-btn" title="Edit" onclick="evEdit('${ev.type === 'schedule' ? ev.playback_id : ev.id}', ${ev.type === 'schedule'})">✎</button>
+        <button class="ev-btn danger" title="Delete" onclick="evDelete('${ev.type === 'schedule' ? ev.playback_id : ev.id}', ${ev.type === 'schedule'})">✕</button>
+    `;
+    return row;
+}
+
+function formatDate(ev) {
+    const d = `${ev.year}-${pad2(ev.month)}-${pad2(ev.day)}`;
+    if (ev.recurrence === 'yearly')  return `${pad2(ev.month)}-${pad2(ev.day)} (yearly)`;
+    if (ev.recurrence === 'monthly') return `day ${ev.day} (monthly)`;
+    if (ev.recurrence === 'weekly')  return `weekday of ${d}`;
+    if (ev.recurrence === 'daily')   return `daily`;
+    return d;
+}
+
+// Timestamp (ms) of the event's next trigger after `now`. One-time events
+// already in the past keep their original (past) timestamp — the comparator
+// parks those at the end.
+function nextOccurrence(ev, now) {
+    const at = (y, mo, d) => new Date(y, mo - 1, d, ev.hour, ev.minute).getTime();
+    const nowTs = now.getTime();
+    switch (ev.recurrence) {
+        case 'daily': {
+            let ts = at(now.getFullYear(), now.getMonth() + 1, now.getDate());
+            if (ts <= nowTs) ts += 24 * 3600 * 1000;
+            return ts;
+        }
+        case 'weekly': {
+            // Fires on the weekday of the base date.
+            const wd = new Date(ev.year, ev.month - 1, ev.day).getDay();
+            const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            for (let i = 0; i < 8; i++) {
+                if (d.getDay() === wd) {
+                    const ts = at(d.getFullYear(), d.getMonth() + 1, d.getDate());
+                    if (ts > nowTs) return ts;
+                }
+                d.setDate(d.getDate() + 1);
+            }
+            return nowTs;   // unreachable — a week always contains the weekday
+        }
+        case 'monthly': {
+            // Skip months too short for the day (day 31 → Date rolls over, so
+            // a rolled-over candidate no longer matches ev.day).
+            for (let i = 0; i < 24; i++) {
+                const cand = new Date(now.getFullYear(), now.getMonth() + i,
+                                      ev.day, ev.hour, ev.minute);
+                if (cand.getDate() === ev.day && cand.getTime() > nowTs)
+                    return cand.getTime();
+            }
+            return nowTs;
+        }
+        case 'yearly': {
+            // The loop only matters for Feb 29 — otherwise this or next year hits.
+            for (let i = 0; i < 8; i++) {
+                const cand = new Date(now.getFullYear() + i, ev.month - 1,
+                                      ev.day, ev.hour, ev.minute);
+                if (cand.getDate() === ev.day && cand.getTime() > nowTs)
+                    return cand.getTime();
+            }
+            return nowTs;
+        }
+        default:   // one-time: the exact date, past or not
+            return at(ev.year, ev.month, ev.day);
+    }
+}
+
+function sortByNextOccurrence(a, b, now) {
+    // Disabled last; before them one-time events already in the past; the rest
+    // ascending by their next trigger (soonest first).
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    const ta = nextOccurrence(a, now), tb = nextOccurrence(b, now);
+    const pastA = ta <= now.getTime(), pastB = tb <= now.getTime();
+    if (pastA !== pastB) return pastA ? 1 : -1;
+    return ta - tb;
+}
+
+function sortByTimeOfDay(a, b) {
+    const timeDiff = (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute);
+    if (timeDiff !== 0) return timeDiff;
+    const titleDiff = String(a.title || '').localeCompare(String(b.title || ''));
+    return titleDiff || String(a.id || '').localeCompare(String(b.id || ''));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Form
+// ─────────────────────────────────────────────────────────────────────────────
+function evFormReset() {
+    const sched = isScheduleTab();
+    editingId = null;
+    editingPlaybackId = null;
+    document.getElementById('ev_form_title').textContent =
+        sched ? '➕ New playback schedule' : '➕ New event';
+    document.getElementById('ev_cancel_btn').style.display = 'none';
+    document.getElementById('ev_type').value = 'reminder';
+    document.getElementById('ev_source').value = 'radio';
+    document.getElementById('ev_title').value = '';
+    document.getElementById('ev_date').value = todayStr();
+    const startTime = nowTimeStr();
+    document.getElementById('ev_time').value = startTime;
+    document.getElementById('ev_stop_time').value = timePlusMinutes(startTime, 60);
+    document.getElementById('ev_stop_enabled').checked = false;
+    // Schedules are usually recurring; one-off reminders default to one-time.
+    document.getElementById('ev_recurrence').value = sched ? 'daily' : 'none';
+    document.getElementById('ev_enabled').checked = true;
+    document.getElementById('ev_station').value = '0';
+    document.getElementById('ev_sdpath').value = '';
+    document.getElementById('ev_volume').value = '20';
+    document.getElementById('ev_volume_val').textContent = '20';
+    document.getElementById('ev_sound').value = '';
+    document.getElementById('ev_sound_play').style.display = 'none';
+    evImageClear();
+    document.getElementById('ev_textpos').value = 'center';
+    resetClipAudio();
+    evTypeChanged();
+    setStatus('', '');
+}
+
+function evEdit(id, playback = false) {
+    const ev = playback
+        ? playbackSchedules().find(e => e.playback_id === id)
+        : events.find(e => e.id === id);
+    if (!ev) return;
+
+    // Keep the active tab in sync with the edited event so the form shows the
+    // right fields (rows only ever appear on their own tab, but be defensive).
+    const wantTab = ev.type === 'schedule' ? 'playback' : 'events';
+    if (wantTab !== currentTab) selectEvTab(wantTab);
+
+    editingId = playback ? null : id;
+    editingPlaybackId = playback ? id : null;
+    document.getElementById('ev_form_title').textContent =
+        ev.type === 'schedule' ? '✎ Edit playback schedule' : '✎ Edit event';
+    document.getElementById('ev_cancel_btn').style.display = '';
+
+    document.getElementById('ev_type').value     = ev.type;
+    document.getElementById('ev_source').value   =
+        ev.sound ? 'sd' : 'radio';
+    document.getElementById('ev_title').value    = ev.title;
+    document.getElementById('ev_date').value     = `${ev.year}-${pad2(ev.month)}-${pad2(ev.day)}`;
+    document.getElementById('ev_time').value     = `${pad2(ev.hour)}:${pad2(ev.minute)}`;
+    document.getElementById('ev_stop_enabled').checked = playback && !!ev._stop;
+    if (playback && ev._stop)
+        document.getElementById('ev_stop_time').value = `${pad2(ev._stop.hour)}:${pad2(ev._stop.minute)}`;
+    document.getElementById('ev_recurrence').value = ev.recurrence;
+    document.getElementById('ev_enabled').checked = !!ev.enabled;
+    document.getElementById('ev_station').value = String(Math.max(ev.station ?? 0, 0));
+    document.getElementById('ev_sdpath').value = ev.type === 'schedule' ? (ev.sound || '') : '';
+    const vol = ev.volume ?? 50;
+    document.getElementById('ev_volume').value = String(vol);
+    document.getElementById('ev_volume_val').textContent = String(vol);
+    document.getElementById('ev_sound').value = ev.type === 'voice' ? (ev.sound || '') : '';
+    evImageSet(ev.image || '');
+    document.getElementById('ev_textpos').value = ev.text_pos || 'center';
+    evImageStatus('');
+    resetClipAudio();
+    document.getElementById('ev_sound_play').style.display =
+        (ev.type === 'voice' && ev.sound) ? '' : 'none';
+    evTypeChanged();
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function formToEvent() {
+    const date = document.getElementById('ev_date').value;
+    if (!date) { setStatus('Date required', 'error'); return null; }
+    const [y, m, d] = date.split('-').map(Number);
+
+    const t = document.getElementById('ev_time').value || '08:00';
+    const [hour, minute] = t.split(':').map(Number);
+
+    const title = document.getElementById('ev_title').value.trim();
+    if (!title) { setStatus('Title required', 'error'); return null; }
+
+    const sched   = isScheduleTab();
+    const type    = sched ? 'schedule' : document.getElementById('ev_type').value;
+    const source  = document.getElementById('ev_source').value;   // radio | sd
+    const station = parseInt(document.getElementById('ev_station').value, 10) || 0;
+    let   volume  = parseInt(document.getElementById('ev_volume').value, 10);
+    if (isNaN(volume)) volume = 50;
+    if (volume < 0)   volume = 0;
+    if (volume > 100) volume = 100;
+
+    // The `sound` field is overloaded: a /voice WAV name for voice events, an SD
+    // path for SD-sourced schedules, empty otherwise (the firmware then plays the
+    // playlist `station`).
+    let sound = '';
+    if (type === 'voice') {
+        sound = document.getElementById('ev_sound').value || '';
+    } else if (type === 'schedule' && source === 'sd') {
+        sound = document.getElementById('ev_sdpath').value.trim();
+        if (!sound) { setStatus('Enter or browse to an SD file or folder', 'error'); return null; }
+        if (sound[0] !== '/') sound = '/' + sound;
+    }
+
+    // Notification artwork, as stored: an SD path (leading slash enforced like
+    // `sound`) or a "net<N>" slot reference, which is not a path. Schedules never
+    // reach the notification screen, so they never carry one.
+    let image = '';
+    if (type !== 'schedule') {
+        image = document.getElementById('ev_image').value.trim();
+        if (image && !isSlotRef(image) && image[0] !== '/') image = '/' + image;
+    }
+
+    const needsStation = type === 'schedule' && source === 'radio';
+    if (needsStation && stations.length === 0) {
+        setStatus('Add at least one station to the playlist first', 'error');
+        return null;
+    }
+
+    const payload = {
+        type,
+        title,
+        year:       y,
+        month:      m,
+        day:        d,
+        hour,
+        minute,
+        recurrence: document.getElementById('ev_recurrence').value,
+        enabled:    document.getElementById('ev_enabled').checked,
+        station,
+        volume,
+        sound,
+        image,
+        text_pos: type === 'schedule'
+            ? 'center' : document.getElementById('ev_textpos').value,
+    };
+    if (sched) {
+        payload.stop_enabled = document.getElementById('ev_stop_enabled').checked;
+        if (payload.stop_enabled) {
+            const stopTime = document.getElementById('ev_stop_time').value;
+            if (!stopTime) { setStatus('Stop time required', 'error'); return null; }
+            const [stopHour, stopMinute] = stopTime.split(':').map(Number);
+            payload.stop_hour = stopHour;
+            payload.stop_minute = stopMinute;
+        }
+    }
+    return payload;
+}
+
+async function evSave() {
+    const payload = formToEvent();
+    if (!payload) return;
+
+    const btn = document.getElementById('ev_save_btn');
+    btn.disabled = true;
+    setStatus('Saving…', '');
+
+    const sched  = isScheduleTab();
+    const url    = sched
+        ? (editingPlaybackId ? `/api/events/playback/${editingPlaybackId}` : '/api/events/playback')
+        : (editingId ? `/api/events/${editingId}` : '/api/events');
+    const method = (editingId || editingPlaybackId) ? 'PUT' : 'POST';
+
+    try {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            throw new Error(`HTTP ${res.status} ${txt}`);
+        }
+        setStatus('✓ Saved', 'ok');
+        evFormReset();
+        await evLoad();
+    } catch (e) {
+        console.error(e);
+        setStatus('Save failed: ' + e.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function evDelete(id, playback = false) {
+    const ev = playback
+        ? playbackSchedules().find(e => e.playback_id === id)
+        : events.find(e => e.id === id);
+    if (!ev) return;
+    if (!confirm(`Delete "${ev.title}"?`)) return;
+
+    try {
+        const url = playback ? `/api/events/playback/${id}` : `/api/events/${id}`;
+        const res = await fetch(url, { method: 'DELETE' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (editingId === id || editingPlaybackId === id) evFormReset();
+        await evLoad();
+    } catch (e) {
+        console.error(e);
+        setStatus('Delete failed: ' + e.message, 'error');
+    }
+}
+
+async function evToggleEnabled(id, enabled, playback = false) {
+    try {
+        // The playback PUT patches like the generic one: omitted fields keep
+        // their stored values, so the toggle sends only `enabled`.
+        const res = await fetch(playback ? `/api/events/playback/${id}` : `/api/events/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await evLoad();
+    } catch (e) {
+        console.error(e);
+        setStatus('Toggle failed: ' + e.message, 'error');
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utils
+// ─────────────────────────────────────────────────────────────────────────────
+function setStatus(text, cls) {
+    const el = document.getElementById('ev_status');
+    el.textContent = text;
+    el.className = 'save-status' + (cls ? ' ' + cls : '');
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function todayStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function nowTimeStr() {
+    const d = new Date();
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function timePlusMinutes(value, delta) {
+    const [hour, minute] = value.split(':').map(Number);
+    const total = (hour * 60 + minute + delta + 24 * 60) % (24 * 60);
+    return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+}
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────────────────────────
+(async () => {
+    const audio = document.getElementById('ev_sound_audio');
+    const btn   = document.getElementById('ev_sound_play');
+    audio.addEventListener('play',  () => btn.textContent = '⏹ Stop');
+    audio.addEventListener('pause', () => btn.textContent = '▶ Play');
+    audio.addEventListener('ended', () => btn.textContent = '▶ Play');
+
+    await loadStations();
+    await loadPanelMeta();     // upload converts to this panel's size
+    await loadImageSlots();    // only slots that actually hold an image
+    await loadEventBell();
+    evFormReset();
+    await evLoad();
+})();

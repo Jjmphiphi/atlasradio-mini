@@ -1,0 +1,668 @@
+#pragma once
+
+#include "defines.h"
+#include "lvgl.h"
+#include "esp_err.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+// Display dimensions and touch orientation derived from UI_PROFILE_* (defines.h).
+// TOUCH_* are applied in this order: swap_xy → mirror_x → mirror_y (in display frame).
+// They are only the BASELINE: touch.c XORs settings.display.touch_* over them, so a
+// panel whose digitizer is mounted differently is fixed from the web UI, not here.
+#if defined(UI_PROFILE_240X296)
+    #define DISPLAY_WIDTH   240
+    #define DISPLAY_HEIGHT  296
+    #define TOUCH_SWAP_XY   0
+    #define TOUCH_MIRROR_X  1
+    #define TOUCH_MIRROR_Y  1
+#elif defined(UI_PROFILE_320x240)
+    #define DISPLAY_WIDTH   320
+    #define DISPLAY_HEIGHT  240
+    #define TOUCH_SWAP_XY   1
+    #define TOUCH_MIRROR_X  1
+    #define TOUCH_MIRROR_Y  0
+    // XPT2046 raw ADC spans from a bring-up session on one ILI9341+XPT2046 panel
+    // (swaps: RAW_X bounds the raw-Y channel → width, RAW_Y bounds raw-X → height).
+    // Direction (MIN>MAX = inverted) is a best-guess from blind corner presses —
+    // verify on a live screen and swap MIN<->MAX per axis if a tap lands mirrored.
+    #define TOUCH_RAW_X_MIN 3800
+    #define TOUCH_RAW_X_MAX 400
+    #define TOUCH_RAW_Y_MIN 3750
+    #define TOUCH_RAW_Y_MAX 500
+#elif defined(UI_PROFILE_480x320)
+    #define DISPLAY_WIDTH   480
+    #define DISPLAY_HEIGHT  320
+    #define TOUCH_SWAP_XY   1
+    #define TOUCH_MIRROR_X  1
+    #define TOUCH_MIRROR_Y  0
+#elif defined(UI_PROFILE_MONO_128X64)
+    #define DISPLAY_WIDTH   128
+    #define DISPLAY_HEIGHT  64
+    #define TOUCH_SWAP_XY   0
+    #define TOUCH_MIRROR_X  0
+    #define TOUCH_MIRROR_Y  0
+#elif defined(UI_PROFILE_MONO_256X64)
+    #define DISPLAY_WIDTH   256
+    #define DISPLAY_HEIGHT  64
+    #define TOUCH_SWAP_XY   0
+    #define TOUCH_MIRROR_X  0
+    #define TOUCH_MIRROR_Y  0
+#else
+    #error "Unknown UI_PROFILE"
+#endif
+
+// XPT2046 resistive-touch calibration: raw 12-bit ADC → pixel range, applied in
+// touch.c before swap/mirror/flip. These spans suit a typical ILI9341/ST7796
+// shield; to tune for a specific panel, #define TOUCH_RAW_* inside that profile
+// above (this block only fills in what a profile didn't override).
+#ifndef TOUCH_RAW_X_MIN
+    #define TOUCH_RAW_X_MIN 200
+#endif
+#ifndef TOUCH_RAW_X_MAX
+    #define TOUCH_RAW_X_MAX 3900
+#endif
+#ifndef TOUCH_RAW_Y_MIN
+    #define TOUCH_RAW_Y_MIN 200
+#endif
+#ifndef TOUCH_RAW_Y_MAX
+    #define TOUCH_RAW_Y_MAX 3900
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define UI_TOUCH_HOTSPOT_COUNT 8
+#define UI_EQ_BANDS            10   // must match EQ_BANDS in screen_equalizer.c
+
+typedef struct {
+    bool    enabled;
+    int16_t x;
+    int16_t y;
+    int16_t w;
+    int16_t h;
+    int16_t action;
+    int16_t radius;   // corner radius in percent: 0 rectangle, 100 pill/circle
+} ui_touch_hotspot_t;
+
+// UI profile picked at compile time — describes screen dimensions,
+// fonts and visibility flags for each screen. Lets us build the same
+// UI code for different displays (color/mono, various resolutions)
+// without a runtime JSON parser.
+typedef struct {
+    // clock face (screen_home) — absolute LCD coordinates (top-left origin)
+    int16_t          clock_strip_x;
+    int16_t          clock_strip_y;
+    int16_t          clock_strip_w;
+    int16_t          clock_strip_h;
+    int16_t          clock_strip_bg_opa;           // background opacity, 0-100 %
+    int16_t          clock_strip_station_w;        // label width (centre-anchored)
+    int16_t          clock_strip_station_x;        // X offset from strip centre
+    int16_t          clock_strip_station_y;        // Y offset inside strip
+    int16_t          clock_strip_title_w;
+    int16_t          clock_strip_title_x;
+    int16_t          clock_strip_title_y;
+    const lv_font_t *clock_strip_station_font;
+    const lv_font_t *clock_strip_title_font;
+    uint32_t         clock_strip_station_color;    // station colour, 0 = inherit theme text_secondary
+    uint32_t         clock_strip_title_color;      // title colour, 0 = inherit theme text_muted
+
+    int16_t          clock_time_x;                 // time digit label position (HH:MM)
+    int16_t          clock_time_y;
+    const lv_font_t *clock_time_font;
+    bool             clock_show_time;
+    uint32_t         clock_time_color;             // time digits colour, 0 = inherit theme text_primary
+
+    int16_t          clock_date_x;                 // date label position (Day YYYY-MM-DD)
+    int16_t          clock_date_y;
+    const lv_font_t *clock_date_font;
+    bool             clock_show_date;
+    uint32_t         clock_date_color;              // date colour, 0 = inherit theme text_secondary
+
+
+    // Network info (IP + "<hostname>.local") — a clock screen element, toggled
+    // and positioned in the layout editor like the date/strip.
+    bool             clock_show_netinfo;
+    int16_t          clock_netinfo_x;
+    int16_t          clock_netinfo_y;
+    const lv_font_t *clock_netinfo_font;
+    uint32_t         clock_netinfo_color;           // IP/host colour, 0 = inherit theme text_muted
+
+    bool             clock_show_strip;
+    bool             clock_show_mode_indicator;
+    bool             clock_show_event_indicator;
+    int16_t          clock_mode_indic_x;       // mode_indicator widget position
+    int16_t          clock_mode_indic_y;
+    int16_t          clock_event_indic_x;      // event_indicator widget position
+    int16_t          clock_event_indic_y;
+
+    // Calendar widget — next upcoming EV_CALENDAR event for today (mirror of the
+    // phone calendar). Hidden when nothing is upcoming; off by default.
+    bool             clock_show_calendar;
+    int16_t          clock_calendar_x;
+    int16_t          clock_calendar_y;
+    int16_t          clock_calendar_w;         // label width for scroll (0 → full width)
+    const lv_font_t *clock_calendar_font;
+    bool             clock_show_weather;
+    int16_t          clock_weather_x;
+    int16_t          clock_weather_y;
+    int16_t          clock_weather_w;
+    const lv_font_t *clock_weather_font;
+
+    // Per-screen wallpaper override: "" inherits the global default
+    // (display.wallpaper_path), "none" forces the gradient/solid background,
+    // anything else is an fopen path to a panel-sized RGB565 .bin on SD.
+    int16_t          clock_label_bg_opa;       // floating label plate opacity, 0..100
+    char             clock_wallpaper[128];
+
+    // screen_radio — absolute LCD coordinates (top-left origin). The station
+    // and ICY-title lines are independent boxes: x is the left edge, w the box
+    // width; text is centered in the box and scrolls when it doesn't fit.
+    int16_t          radio_np_x;               // station-name line box
+    int16_t          radio_np_y;
+    int16_t          radio_np_w;
+    bool             radio_show_np;
+    bool             radio_show_np_title;
+    int16_t          radio_title_x;            // ICY-title line box
+    int16_t          radio_title_y;
+    int16_t          radio_title_w;
+    bool             radio_show_station_icon;
+    int16_t          radio_station_icon_x;     // station artwork top-left position
+    int16_t          radio_station_icon_y;
+    int16_t          radio_station_icon_size;  // displayed station artwork size, 16..64 px
+    const lv_font_t *radio_np_station_font;    // now-playing station-name line
+    const lv_font_t *radio_np_title_font;      // now-playing ICY-title line
+    uint32_t         radio_np_color;           // station-name colour, 0 = inherit theme accent
+    uint32_t         radio_title_color;        // ICY-title colour, 0 = inherit theme text_secondary
+
+    bool             radio_show_playback_status;
+    int16_t          radio_state_x;            // "PLAYING / STOPPED / ..." label (center-anchored)
+    int16_t          radio_state_y;
+    const lv_font_t *radio_state_font;
+    uint32_t         radio_state_color;        // playback-status colour, 0 = inherit theme status_ok
+
+    // Audio-info split into independent center-anchored labels ("44100 Hz",
+    // "STEREO"/"MONO", "128 kbps", "VOL: 42%"), all sharing one font.
+    bool             radio_samplerate_show;
+    int16_t          radio_samplerate_x;
+    int16_t          radio_samplerate_y;
+    bool             radio_channels_show;
+    int16_t          radio_channels_x;
+    int16_t          radio_channels_y;
+    bool             radio_bitrate_show;
+    int16_t          radio_bitrate_x;
+    int16_t          radio_bitrate_y;
+    bool             radio_volume_show;
+    int16_t          radio_volume_x;
+    int16_t          radio_volume_y;
+    const lv_font_t *radio_audio_info_font;
+    uint32_t         radio_info_color;         // audio-info rows colour, 0 = inherit theme text_muted
+
+    bool             radio_show_mode_indicator;
+    bool             radio_show_clock;
+    bool             radio_show_event_indicator;
+    int16_t          radio_mode_indic_x;
+    int16_t          radio_mode_indic_y;
+    int16_t          radio_clock_widget_x;
+    int16_t          radio_clock_widget_y;
+    const lv_font_t *radio_clock_font;         // "HH:MM" clock widget on radio screen
+    int16_t          radio_event_indic_x;
+    int16_t          radio_event_indic_y;
+
+    bool             radio_show_vu;            // real-audio FFT spectrum widget
+    int16_t          radio_vu_x;               // container top-left + size (LCD px)
+    int16_t          radio_vu_y;
+    int16_t          radio_vu_w;
+    int16_t          radio_vu_h;
+    bool             radio_vu_transparent;     // no bg fill: bars sit on wallpaper/gradient
+    uint32_t         radio_vu_bg_color;        // per-screen colour override, 0 = theme bg_primary
+    uint32_t         radio_vu_bar_color;       // 0 = theme accent
+    bool             radio_needle_show_l;      // analogue needle VU, left channel meter
+    bool             radio_needle_show_r;      // right channel meter (each independent)
+    bool             radio_needle_transparent; // no plate: needles sit on wallpaper/gradient
+    uint32_t         radio_needle_bg_color;    // 0 = theme bg_primary
+    uint32_t         radio_needle_color;       // 0 = theme accent
+    int16_t          radio_needle_l_x;         // per-meter top-left + size (LCD px)
+    int16_t          radio_needle_l_y;
+    int16_t          radio_needle_l_w;
+    int16_t          radio_needle_l_h;
+    int16_t          radio_needle_r_x;
+    int16_t          radio_needle_r_y;
+    int16_t          radio_needle_r_w;
+    int16_t          radio_needle_r_h;
+    bool             radio_stereo_show_l;      // stereo bar VU, left channel bar
+    bool             radio_stereo_show_r;      // right channel bar (each independent)
+    bool             radio_stereo_frame;       // thin 1 px frame around each bar
+    bool             radio_stereo_horizontal;  // bars fill left→right instead of bottom→up
+    bool             radio_stereo_transparent; // no bg fill: bars sit on wallpaper/gradient
+    bool             radio_stereo_peak;        // hold a thin peak marker with slow fall
+    bool             radio_stereo_zones;       // green/orange/red zones; off = solid bar colour
+    uint32_t         radio_stereo_bg_color;    // 0 = theme bg_primary (bg + frame)
+    uint32_t         radio_stereo_bar_color;   // 0 = theme accent; ignored when zones is on
+    int16_t          radio_stereo_l_x;         // per-bar top-left + size (LCD px)
+    int16_t          radio_stereo_l_y;
+    int16_t          radio_stereo_l_w;
+    int16_t          radio_stereo_l_h;
+    int16_t          radio_stereo_r_x;
+    int16_t          radio_stereo_r_y;
+    int16_t          radio_stereo_r_w;
+    int16_t          radio_stereo_r_h;
+    bool             radio_show_cassette;      // legacy JSON name: show animated wheels overlay
+    int16_t          radio_animation_style;    // 0 cassette reels, 1 car rims
+    bool             radio_wheels_reverse;     // spin counter-clockwise
+    bool             radio_show_wheel_left;
+    bool             radio_show_wheel_right;
+    int16_t          radio_cassette_l_x;        // top-left + square size, LCD px
+    int16_t          radio_cassette_l_y;
+    int16_t          radio_cassette_l_size;
+    int16_t          radio_cassette_r_x;
+    int16_t          radio_cassette_r_y;
+    int16_t          radio_cassette_r_size;
+    bool             radio_show_weather;
+    int16_t          radio_weather_x;
+    int16_t          radio_weather_y;
+    int16_t          radio_weather_w;
+    const lv_font_t *radio_weather_font;
+    bool             radio_show_ctrl_overlay;   // tap-anywhere transport/volume overlay
+    bool             radio_volslider_show;      // draggable volume slider
+    bool             radio_volslider_vertical;  // explicit orientation (box auto-swapped to match)
+    bool             radio_volslider_knob_only; // hide track/fill — wallpaper draws the artwork
+    int16_t          radio_volslider_x;         // top-left + size (LCD px)
+    int16_t          radio_volslider_y;
+    int16_t          radio_volslider_w;
+    int16_t          radio_volslider_h;
+    char             radio_volslider_knob_image[128]; // knob RGB565 .bin on SD ("" = plain colour); knob sized to the image
+    int16_t          radio_volslider_vol_max;   // full travel maps to 0..vol_max % (1-100; 100 = no scaling)
+    ui_touch_hotspot_t radio_touch_hotspots[UI_TOUCH_HOTSPOT_COUNT];
+    int16_t          radio_label_bg_opa;        // floating label plate opacity, 0..100
+    char             radio_wallpaper[128];      // see clock_wallpaper
+
+    // screen_sd_player — absolute LCD coordinates (top-left origin). The title
+    // and the folder row are fixed-width boxes (text centered inside, capped at
+    // the box width, like bt_title); the other text rows are horizontally
+    // centered (Y only). Mirrors screen_radio.
+    int16_t          sd_title_x;               // track title (ID3 / file name) box: left edge
+    int16_t          sd_title_y;
+    int16_t          sd_title_w;               // box width
+    const lv_font_t *sd_title_font;
+    uint32_t         sd_title_color;           // track-title colour, 0 = inherit theme text_primary
+    int16_t          sd_folder_x;              // "<folder>   idx/count" box: left edge
+    int16_t          sd_folder_y;
+    int16_t          sd_folder_w;              // box width
+    const lv_font_t *sd_folder_font;
+    uint32_t         sd_folder_color;          // folder/index colour, 0 = inherit theme accent
+    bool             sd_show_folder;           // folder/index row
+    // Info row split into independent center-anchored labels sharing sd_info_font
+    // (which the time row uses too).
+    bool             sd_volume_show;           // "VOL: n%"
+    int16_t          sd_volume_x;
+    int16_t          sd_volume_y;
+    bool             sd_status_show;           // "PAUSED   SHUFFLE   REPEAT ..."
+    int16_t          sd_status_x;
+    int16_t          sd_status_y;
+    const lv_font_t *sd_info_font;
+    uint32_t         sd_info_color;            // volume/status/time rows colour, 0 = inherit theme text_muted
+    bool             sd_show_time;             // "elapsed / total" row (needs a spare line; off on mono)
+    int16_t          sd_time_x;                // "elapsed / total" row (center-anchored)
+    int16_t          sd_time_y;
+    bool             sd_show_bar;              // read-only progress bar (needs a known duration)
+    int16_t          sd_bar_x;                 // progress bar geometry (LCD px, top-left origin)
+    int16_t          sd_bar_y;
+    int16_t          sd_bar_w;
+    int16_t          sd_bar_h;
+    uint32_t         sd_bar_color;             // played part, 0 = theme accent
+    uint32_t         sd_bar_bg_color;          // track behind it, 0 = theme text_muted at 40%
+    bool             sd_show_cover;            // album cover ("cover.bin" in the track's folder)
+    int16_t          sd_cover_x;               // cover top-left position
+    int16_t          sd_cover_y;
+    int16_t          sd_cover_size;            // displayed square size, 16..240 px
+
+    bool             sd_show_mode_indicator;
+    bool             sd_show_clock;
+    bool             sd_show_event_indicator;
+    int16_t          sd_mode_indic_x;
+    int16_t          sd_mode_indic_y;
+    int16_t          sd_clock_widget_x;
+    int16_t          sd_clock_widget_y;
+    const lv_font_t *sd_clock_font;            // "HH:MM" clock widget on SD screen
+    int16_t          sd_event_indic_x;
+    int16_t          sd_event_indic_y;
+
+    bool             sd_show_vu;                // real-audio FFT spectrum widget
+    int16_t          sd_vu_x;                   // container top-left + size (LCD px)
+    int16_t          sd_vu_y;
+    int16_t          sd_vu_w;
+    int16_t          sd_vu_h;
+    bool             sd_vu_transparent;         // no bg fill: bars sit on wallpaper/gradient
+    uint32_t         sd_vu_bg_color;            // per-screen colour override, 0 = theme bg_primary
+    uint32_t         sd_vu_bar_color;           // 0 = theme accent
+    bool             sd_needle_show_l;          // analogue needle VU, left channel meter
+    bool             sd_needle_show_r;          // right channel meter (each independent)
+    bool             sd_needle_transparent;     // no plate: needles sit on wallpaper/gradient
+    uint32_t         sd_needle_bg_color;        // 0 = theme bg_primary
+    uint32_t         sd_needle_color;           // 0 = theme accent
+    int16_t          sd_needle_l_x;             // per-meter top-left + size (LCD px)
+    int16_t          sd_needle_l_y;
+    int16_t          sd_needle_l_w;
+    int16_t          sd_needle_l_h;
+    int16_t          sd_needle_r_x;
+    int16_t          sd_needle_r_y;
+    int16_t          sd_needle_r_w;
+    int16_t          sd_needle_r_h;
+    bool             sd_stereo_show_l;         // stereo bar VU, left channel bar
+    bool             sd_stereo_show_r;         // right channel bar (each independent)
+    bool             sd_stereo_frame;          // thin 1 px frame around each bar
+    bool             sd_stereo_horizontal;     // bars fill left→right instead of bottom→up
+    bool             sd_stereo_transparent;    // no bg fill: bars sit on wallpaper/gradient
+    bool             sd_stereo_peak;           // hold a thin peak marker with slow fall
+    bool             sd_stereo_zones;          // green/orange/red zones; off = solid bar colour
+    uint32_t         sd_stereo_bg_color;       // 0 = theme bg_primary (bg + frame)
+    uint32_t         sd_stereo_bar_color;      // 0 = theme accent; ignored when zones is on
+    int16_t          sd_stereo_l_x;            // per-bar top-left + size (LCD px)
+    int16_t          sd_stereo_l_y;
+    int16_t          sd_stereo_l_w;
+    int16_t          sd_stereo_l_h;
+    int16_t          sd_stereo_r_x;
+    int16_t          sd_stereo_r_y;
+    int16_t          sd_stereo_r_w;
+    int16_t          sd_stereo_r_h;
+    bool             sd_show_cassette;         // legacy JSON name: show animated wheels overlay
+    int16_t          sd_animation_style;       // 0 cassette reels, 1 car rims
+    bool             sd_wheels_reverse;        // spin counter-clockwise
+    bool             sd_show_wheel_left;
+    bool             sd_show_wheel_right;
+    int16_t          sd_cassette_l_x;           // top-left + square size, LCD px
+    int16_t          sd_cassette_l_y;
+    int16_t          sd_cassette_l_size;
+    int16_t          sd_cassette_r_x;
+    int16_t          sd_cassette_r_y;
+    int16_t          sd_cassette_r_size;
+    bool             sd_show_weather;
+    int16_t          sd_weather_x;
+    int16_t          sd_weather_y;
+    int16_t          sd_weather_w;
+    const lv_font_t *sd_weather_font;
+    bool             sd_show_ctrl_overlay;      // tap-anywhere transport/volume overlay
+    bool             sd_volslider_show;         // draggable volume slider
+    bool             sd_volslider_vertical;     // explicit orientation (box auto-swapped to match)
+    bool             sd_volslider_knob_only;    // hide track/fill — wallpaper draws the artwork
+    int16_t          sd_volslider_x;            // top-left + size (LCD px)
+    int16_t          sd_volslider_y;
+    int16_t          sd_volslider_w;
+    int16_t          sd_volslider_h;
+    char             sd_volslider_knob_image[128]; // knob RGB565 .bin on SD ("" = plain colour); knob sized to the image
+    int16_t          sd_volslider_vol_max;      // full travel maps to 0..vol_max % (1-100; 100 = no scaling)
+    ui_touch_hotspot_t sd_touch_hotspots[UI_TOUCH_HOTSPOT_COUNT];
+    int16_t          sd_label_bg_opa;           // floating label plate opacity, 0..100
+    char             sd_wallpaper[128];         // see clock_wallpaper
+
+    // screen_playlist — the station list. screen_sd_browser is the same shape
+    // but owns its fields (browser_* below): with a wallpaper per screen, the
+    // cut-out each artwork leaves for the list rarely lands in the same place.
+    bool             playlist_header_hide;   // hide the whole header strip (title + hint)
+    int16_t          playlist_header_h;
+    bool             playlist_hint_hide;     // hide the "press - play ..." line
+    int16_t          playlist_list_x;        // scroll area box in LCD px; w/h 0 → auto:
+    int16_t          playlist_list_y;        // full width under the header. Sizing it to a
+    int16_t          playlist_list_w;        // wallpaper cut-out also shrinks the area that
+    int16_t          playlist_list_h;        // scrolling has to repaint.
+    int16_t          playlist_item_h;
+    int16_t          playlist_item_pad;
+    int16_t          playlist_row_pad_left;
+    int16_t          playlist_label_bg_opa;  // row plate opacity 0..100 — the generic
+                                             // per-screen "label plate" control; on the list
+                                             // screens the plate IS the row
+    int16_t          playlist_label_x;       // title offset inside the header (from LEFT_MID)
+    int16_t          playlist_label_y;
+    int16_t          playlist_hint_x;        // hint offset inside the header (from RIGHT_MID)
+    int16_t          playlist_hint_y;
+    // Row colours, 0 = inherit the theme. The palette dresses the list for a
+    // plain background; over a wallpaper it usually clashes, and each list
+    // screen sits on its own artwork — hence per-section overrides.
+    uint32_t         playlist_row_bg_color;     // row plate, 0 = theme bg_secondary
+    uint32_t         playlist_row_text_color;   // row text, 0 = theme text_primary
+    uint32_t         playlist_row_accent_color; // playing station, 0 = theme accent
+    uint32_t         playlist_cursor_bg_color;  // selected row plate, 0 = theme accent
+    uint32_t         playlist_cursor_text_color;// selected row text, 0 = white
+    const lv_font_t *playlist_header_font;
+    const lv_font_t *playlist_row_font;
+    char             playlist_wallpaper[128]; // see clock_wallpaper
+
+    // screen_sd_browser — same fields as screen_playlist above, own values
+    bool             browser_header_hide;
+    int16_t          browser_header_h;
+    bool             browser_hint_hide;
+    int16_t          browser_list_x;
+    int16_t          browser_list_y;
+    int16_t          browser_list_w;
+    int16_t          browser_list_h;
+    int16_t          browser_item_h;
+    int16_t          browser_item_pad;
+    int16_t          browser_row_pad_left;
+    int16_t          browser_label_bg_opa;
+    int16_t          browser_label_x;
+    int16_t          browser_label_y;
+    int16_t          browser_hint_x;
+    int16_t          browser_hint_y;
+    uint32_t         browser_row_bg_color;      // see the playlist_* row colours
+    uint32_t         browser_row_text_color;
+    uint32_t         browser_row_accent_color;  // ".." and folders, 0 = theme accent
+    uint32_t         browser_cursor_bg_color;
+    uint32_t         browser_cursor_text_color;
+    const lv_font_t *browser_header_font;
+    const lv_font_t *browser_row_font;
+    char             browser_wallpaper[128];
+
+    // screen_bt — absolute LCD coordinates (top-left origin)
+    int16_t          bt_circle_x;
+    int16_t          bt_circle_y;
+    int16_t          bt_circle_w;
+    int16_t          bt_circle_h;
+    const lv_font_t *bt_icon_font;             // BT symbol inside the circle
+    bool             bt_show_circle;
+
+    int16_t          bt_brand_x;               // "Bluetooth Audio" label
+    int16_t          bt_brand_y;
+    const lv_font_t *bt_brand_font;
+    uint32_t         bt_brand_color;           // "Bluetooth Audio" colour, 0 = inherit theme bt_brand
+
+    int16_t          bt_status_x;              // "Connected / Discoverable / ..."
+    int16_t          bt_status_y;
+    const lv_font_t *bt_status_font;
+    uint32_t         bt_status_color;          // connection-status colour, 0 = inherit theme status_ok
+
+    int16_t          bt_vol_x;                 // "VOL: NN%" label (center-anchored)
+    int16_t          bt_vol_y;
+    const lv_font_t *bt_vol_label_font;
+    uint32_t         bt_vol_color;             // "VOL: NN%" colour, 0 = inherit theme text_muted
+
+    bool             bt_show_mode_indicator;
+    bool             bt_show_clock;
+    int16_t          bt_mode_indic_x;
+    int16_t          bt_mode_indic_y;
+    int16_t          bt_clock_widget_x;
+    int16_t          bt_clock_widget_y;
+    const lv_font_t *bt_clock_font;            // "HH:MM" clock widget on BT screen
+
+    // Track metadata (sent over UART by BT module)
+    int16_t          bt_title_x;
+    int16_t          bt_title_y;
+    int16_t          bt_title_w;               // width for scroll
+    const lv_font_t *bt_title_font;
+    uint32_t         bt_title_color;           // track title colour, 0 = inherit theme text_primary
+    int16_t          bt_artist_x;
+    int16_t          bt_artist_y;
+    int16_t          bt_artist_w;
+    const lv_font_t *bt_artist_font;
+    uint32_t         bt_artist_color;          // artist colour, 0 = inherit theme text_secondary
+    int16_t          bt_time_x;
+    int16_t          bt_time_y;
+    const lv_font_t *bt_time_font;
+    uint32_t         bt_time_color;            // "m:ss / m:ss" colour, 0 = inherit theme text_secondary
+    bool             bt_show_ctrl_overlay;      // tap-anywhere transport/volume overlay
+    bool             bt_volslider_show;         // draggable volume slider (BT channel)
+    bool             bt_volslider_vertical;     // explicit orientation (box auto-swapped to match)
+    bool             bt_volslider_knob_only;    // hide track/fill — wallpaper draws the artwork
+    int16_t          bt_volslider_x;            // top-left + size (LCD px)
+    int16_t          bt_volslider_y;
+    int16_t          bt_volslider_w;
+    int16_t          bt_volslider_h;
+    char             bt_volslider_knob_image[128]; // knob RGB565 .bin on SD ("" = plain colour); knob sized to the image
+    int16_t          bt_volslider_vol_max;      // full travel maps to 0..vol_max % (1-100; 100 = no scaling)
+    ui_touch_hotspot_t bt_touch_hotspots[UI_TOUCH_HOTSPOT_COUNT];
+    int16_t          bt_label_bg_opa;           // floating label plate opacity, 0..100
+    char             bt_wallpaper[128];         // see clock_wallpaper
+
+    // screen_settings
+    int16_t          settings_title_y;
+    int16_t          settings_row_w;
+    int16_t          settings_row_h;
+    int16_t          settings_row_pad;      // inner card padding (px)
+    int16_t          settings_row1_y;
+    int16_t          settings_row2_y;
+    int16_t          settings_row3_y;
+    int16_t          settings_slider_w;
+    int16_t          settings_slider_h;
+    bool             settings_show_slider;  // draw value slider (off on touchless/short panels)
+    int16_t          settings_hint_y;       // from bottom (negative)
+    bool             settings_title_in_list; // title scrolls with the list (small panels)
+    const lv_font_t *settings_title_font;
+    const lv_font_t *settings_row_font;
+    const lv_font_t *settings_value_font;
+    const lv_font_t *settings_hint_font;
+
+    // screen_equalizer
+    int16_t          eq_title_y;
+    int16_t          eq_info_x;        // active-band value label — top-left anchor (web-editable)
+    int16_t          eq_info_y;        // "1kHz: +6dB" — active band info
+    int16_t          eq_band_area_y;   // header height: where the bands start (curve auto-box)
+    int16_t          eq_slider_h;      // vertical slider height (web-editable)
+    int16_t          eq_slider_w;      // slider width/thickness (web-editable)
+    int16_t          eq_group_w;       // group SPAN: first band's left edge → last band's right
+                                       // edge (web-editable). Bands are spread evenly across it,
+                                       // so both outer edges land on an exact pixel and the gaps
+                                       // may differ by 1 px. A uniform integer gap instead would
+                                       // quantise the span to 9-px steps — see screen_equalizer.
+    int16_t          eq_hint_x;        // legend horizontal offset from bottom-centre (web-editable)
+    int16_t          eq_hint_y;        // from bottom (negative)
+    bool             eq_hint_hide;     // hide the bottom legend/hint line
+    bool             eq_freq_hide;     // hide the per-band frequency labels
+    int16_t          eq_group_x;       // sliders+labels group — top-left anchor (web-editable);
+    int16_t          eq_group_y;       // the box SIZE is derived, see ui_profile_eq_group_box()
+    const lv_font_t *eq_title_font;
+    const lv_font_t *eq_info_font;
+    const lv_font_t *eq_freq_font;
+    const lv_font_t *eq_hint_font;
+    int16_t          eq_curve_x;         // response-curve box (top-left anchor); web-editable
+    int16_t          eq_curve_y;
+    int16_t          eq_curve_w;         // 0 w/h → auto (right ~45% of the header strip)
+    int16_t          eq_curve_h;
+    int16_t          eq_knob_w;          // knob image width in px (0 = fill the band column); height follows aspect
+    bool             eq_knob_only;        // hide track/fill — only the knob image draws (over wallpaper)
+    char             eq_knob_image[128]; // knob RGB565 .bin on SD ("" = plain colour); one image shared by all bands
+    char             eq_wallpaper[128];  // see clock_wallpaper — per-screen EQ background override
+
+    // screen_events
+    int16_t          events_header_h;
+    int16_t          events_item_h;          // row height (2 lines: title + meta)
+    int16_t          events_item_pad;        // gap between rows
+    int16_t          events_row_w;
+    int16_t          events_row_label_w;
+    int16_t          events_row_pad_hor;
+    const lv_font_t *events_header_font;
+    const lv_font_t *events_title_font;
+    const lv_font_t *events_meta_font;
+
+    // screen_wifi_ap
+    int16_t          wifi_title_y;
+    int16_t          wifi_card_w;
+    int16_t          wifi_card_h;
+    int16_t          wifi_card_y;           // offset from CENTER
+    int16_t          wifi_card_pad_hor;
+    int16_t          wifi_card_pad_ver;
+    int16_t          wifi_row2_y;           // offset from row 1
+    int16_t          wifi_row3_y;           // offset from row 1
+    int16_t          wifi_hint_y;           // from bottom (negative)
+    const lv_font_t *wifi_title_font;
+    const lv_font_t *wifi_key_font;
+    const lv_font_t *wifi_value_font;
+    const lv_font_t *wifi_hint_font;
+} ui_profile_t;
+
+const ui_profile_t *ui_profile_get(void);
+
+// Pointer to the "factory" profile — values compiled into firmware (read-only).
+// Used for "Reset to defaults" and as a fallback during JSON load.
+const ui_profile_t *ui_profile_defaults(void);
+
+// Overwrite the mutable runtime with the given profile (e.g. after a web patch).
+// The pointer returned by ui_profile_get() stays valid — same struct.
+void ui_profile_set(const ui_profile_t *src);
+
+// Reset the entire profile to defaults.
+void ui_profile_reset(void);
+
+// Persistence: /config/ui_profile.json. The file stores per-field overrides;
+// missing fields → defaults. Format matches what /api/ui/profile/* returns
+// and accepts (per-screen sections).
+esp_err_t ui_profile_load_from_file(void);
+esp_err_t ui_profile_save_to_file(void);
+
+// ── per-section JSON helpers (used by http_server) ──────────────────────────
+// `cJSON *` is returned as void* to avoid pulling cJSON.h into ui_profile.h —
+// http_server already has cJSON.h, but other users of ui_profile.h might not.
+
+void *ui_profile_dump_clock(void);          // returns cJSON object (caller: cJSON_Delete)
+void  ui_profile_patch_clock(const void *obj); // accepts cJSON object — patch runtime
+
+void *ui_profile_dump_bt(void);
+void  ui_profile_patch_bt(const void *obj);
+
+void *ui_profile_dump_radio(void);
+void  ui_profile_patch_radio(const void *obj);
+
+void *ui_profile_dump_sd(void);
+void  ui_profile_patch_sd(const void *obj);
+
+void *ui_profile_dump_eq(void);
+void  ui_profile_patch_eq(const void *obj);
+
+void *ui_profile_dump_playlist(void);
+void  ui_profile_patch_playlist(const void *obj);
+
+void *ui_profile_dump_browser(void);
+void  ui_profile_patch_browser(const void *obj);
+
+// Effective list box of the two list screens: the stored x/y/w/h, or the auto
+// layout (full width under the header) when w/h are unset. Shared by the screens
+// and the web dump so both agree.
+void ui_profile_playlist_list_box(const ui_profile_t *p,
+                                  int16_t *x, int16_t *y, int16_t *w, int16_t *h);
+void ui_profile_browser_list_box(const ui_profile_t *p,
+                                 int16_t *x, int16_t *y, int16_t *w, int16_t *h);
+
+// Inner padding of that box. ui_list_widget derives the row width from it, so a
+// row can never overflow the box a wallpaper reserved.
+#if defined(UI_PROFILE_MONO_128X64)
+#define UI_LIST_BOX_PAD 0
+#else
+#define UI_LIST_BOX_PAD 2
+#endif
+
+// Effective EQ response-curve box (stored x/y/w/h, or the auto layout when w/h
+// are unset). Shared by the web dump and the screen so both agree.
+void ui_profile_eq_curve_box(const ui_profile_t *p,
+                             int16_t *x, int16_t *y, int16_t *w, int16_t *h);
+
+// Effective EQ sliders+labels group box: x/y/w are the stored anchor and span, h
+// is DERIVED (eq_slider_h plus the frequency label strip). Shared by the web dump
+// and the screen so both agree. The knob artwork never enters this: it is only
+// drawn, centred on its band, and may overhang — coupling the two would put a
+// floor of 10 × knob width under the group and make it impossible to shrink.
+void ui_profile_eq_group_box(const ui_profile_t *p,
+                             int16_t *x, int16_t *y, int16_t *w, int16_t *h);
+
+#ifdef __cplusplus
+}
+#endif

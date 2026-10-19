@@ -1,0 +1,424 @@
+#include "defines.h"
+#include "screen_radio.h"
+#include "screen_playlist.h"
+#include "ui_events.h"
+#include "ui_screen.h"
+#include "ui_manager.h"
+#include "ui_nav.h"
+#include "ui_label.h"
+#include "clock_widget.h"
+#include "now_playing_widget.h"
+#include "mode_indicator_widget.h"
+#include "event_indicator_widget.h"
+#include "controls_overlay_widget.h"
+#include "touch_hotspots_widget.h"
+#include "vol_overlay_widget.h"
+#include "vol_slider_widget.h"
+#if !defined(UI_PROFILE_MONO_128X64)
+#include "station_icon_widget.h"
+#include "weather_widget.h"
+#include "vu_widget.h"
+#include "vu_needle_widget.h"
+#include "vu_stereo_widget.h"
+#include "animated_wheels_widget.h"
+#endif
+#include "app_state.h"
+#include "settings.h"
+#include "media_control.h"
+#include "sd_player.h"
+#include "theme.h"
+#include "ui_profile.h"
+#include "fonts/ui_fonts.h"
+#include "lvgl.h"
+#include "esp_log.h"
+#include <stdio.h>
+#include <string.h>
+
+static const char *TAG = "SCR_RADIO";
+
+static lv_obj_t *s_root            = NULL;
+static lv_obj_t *s_label_state;
+// Audio-info split: independent labels sharing radio_audio_info_font.
+static lv_obj_t *s_label_samplerate;
+static lv_obj_t *s_label_channels;
+static lv_obj_t *s_label_bitrate;
+static lv_obj_t *s_label_volume;
+
+static const char *radio_state_str(radio_state_t st)
+{
+    switch (st) {
+        case RADIO_STATE_STOPPED:   return "STOPPED";
+        case RADIO_STATE_PLAYING:   return "PLAYING";
+        case RADIO_STATE_BUFFERING: return "BUFFERING";
+        case RADIO_STATE_ERROR:     return "ERROR";
+        case RADIO_STATE_FINISHED:  return "STOPPED";
+        default:                    return "?";
+    }
+}
+
+static void refresh_from_state(void)
+{
+    app_state_t *s = app_state_get();
+
+    now_playing_widget_update();
+#if !defined(UI_PROFILE_MONO_128X64)
+    animated_wheels_widget_set_running(s->radio_state == RADIO_STATE_PLAYING);
+#endif
+
+    if (s_label_state) {
+#if defined(UI_PROFILE_MONO_128X64)
+        char stbuf[32];
+        if (s->bitrate > 0)
+            snprintf(stbuf, sizeof(stbuf), "%s  %d k",
+                     radio_state_str(s->radio_state), s->bitrate / 1000);
+        else
+            snprintf(stbuf, sizeof(stbuf), "%s", radio_state_str(s->radio_state));
+        lv_label_set_text(s_label_state, stbuf);
+#else
+        lv_label_set_text(s_label_state, radio_state_str(s->radio_state));
+#endif
+    }
+
+    // Stream metadata labels hide themselves (empty text) until the decoder
+    // reports a valid stream; the volume label is always meaningful.
+    char buf[24];
+    if (s_label_samplerate) {
+        if (s->sample_rate > 0) snprintf(buf, sizeof(buf), "%d Hz", s->sample_rate);
+        ui_label_set_text(s_label_samplerate, s->sample_rate > 0 ? buf : "");
+    }
+    if (s_label_channels) {
+        ui_label_set_text(s_label_channels,
+            s->sample_rate <= 0 ? "" : (s->channels == 1 ? "MONO" : "STEREO"));
+    }
+    if (s_label_bitrate) {
+        if (s->bitrate > 0) snprintf(buf, sizeof(buf), "%d kbps", s->bitrate / 1000);
+        ui_label_set_text(s_label_bitrate,
+            (s->sample_rate > 0 && s->bitrate > 0) ? buf : "");
+    }
+    if (s_label_volume) {
+        snprintf(buf, sizeof(buf), "VOL: %d%%", s->volume);
+        lv_label_set_text(s_label_volume, buf);
+    }
+
+    vol_slider_widget_update();   // knob follows encoder/WS/Android changes
+    controls_overlay_refresh();   // keep center play/stop in sync with external changes
+}
+
+// Center-anchored muted label for one audio-info element (shared font/plate).
+static lv_obj_t *make_info_label(lv_obj_t *parent, const ui_profile_t *p,
+                                 int16_t x, int16_t y)
+{
+    lv_obj_t *lbl = ui_anchored_label(parent, x, y, UI_ALIGN_CENTER);
+    lv_label_set_text(lbl, "");
+    lv_obj_set_style_text_font(lbl, p->radio_audio_info_font, LV_PART_MAIN);
+#if defined(UI_PROFILE_MONO_128X64)
+    uint32_t info_color = p->radio_info_color ? p->radio_info_color : 0xFFFFFFu;
+#else
+    uint32_t info_color = p->radio_info_color ? p->radio_info_color
+                                              : theme_get()->text_muted;
+#endif
+    lv_obj_set_style_text_color(lbl, lv_color_hex(info_color), LV_PART_MAIN);
+    ui_label_scrim(lbl, p->radio_label_bg_opa);
+    return lbl;
+}
+
+static void radio_create(lv_obj_t *parent)
+{
+    s_root = parent;
+    const ui_theme_colors_t *th = theme_get();
+    const ui_profile_t      *p  = ui_profile_get();
+
+    lv_obj_set_style_bg_color(parent, lv_color_hex(th->bg_primary), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, LV_PART_MAIN);
+
+#if !defined(UI_PROFILE_MONO_128X64)
+    if (p->radio_show_cassette &&
+        (p->radio_show_wheel_left || p->radio_show_wheel_right)) {
+        animated_wheels_widget_create(parent, (animated_wheels_style_t)p->radio_animation_style,
+                                      p->radio_wheels_reverse,
+                                      p->radio_show_wheel_left,
+                                      p->radio_cassette_l_x, p->radio_cassette_l_y, p->radio_cassette_l_size,
+                                      p->radio_show_wheel_right,
+                                      p->radio_cassette_r_x, p->radio_cassette_r_y, p->radio_cassette_r_size);
+    }
+#endif
+
+    if (p->radio_show_np) {
+        now_playing_widget_create(parent,
+                                  p->radio_np_x, p->radio_np_y, p->radio_np_w,
+                                  p->radio_np_station_font,
+                                  p->radio_show_np_title,
+                                  p->radio_title_x, p->radio_title_y, p->radio_title_w,
+                                  p->radio_np_title_font,
+                                  p->radio_label_bg_opa,
+                                  p->radio_np_color, p->radio_title_color);
+    }
+#if !defined(UI_PROFILE_MONO_128X64)
+    if (p->radio_show_station_icon) {
+        station_icon_widget_create(parent,
+                                   p->radio_station_icon_x, p->radio_station_icon_y,
+                                   p->radio_station_icon_size);
+    }
+#endif
+    if (p->radio_show_mode_indicator) {
+        mode_indicator_create(parent, p->radio_mode_indic_x, p->radio_mode_indic_y);
+    }
+    if (p->radio_show_clock) {
+        clock_widget_create(parent, p->radio_clock_widget_x, p->radio_clock_widget_y,
+                            p->radio_clock_font, UI_ALIGN_CENTER, p->radio_label_bg_opa);
+    }
+    if (p->radio_show_event_indicator) {
+        event_indicator_create(parent, p->radio_event_indic_x, p->radio_event_indic_y);
+    }
+#if !defined(UI_PROFILE_MONO_128X64)
+    if (p->radio_show_vu) {
+        vu_widget_create(parent, p->radio_vu_x, p->radio_vu_y, p->radio_vu_w, p->radio_vu_h,
+                         p->radio_vu_transparent,
+                         p->radio_vu_bg_color, p->radio_vu_bar_color, MEDIA_SOURCE_RADIO);
+    }
+    if (p->radio_needle_show_l || p->radio_needle_show_r) {
+        vu_needle_widget_create(parent,
+                                p->radio_needle_show_l,
+                                p->radio_needle_l_x, p->radio_needle_l_y,
+                                p->radio_needle_l_w, p->radio_needle_l_h,
+                                p->radio_needle_show_r,
+                                p->radio_needle_r_x, p->radio_needle_r_y,
+                                p->radio_needle_r_w, p->radio_needle_r_h,
+                                p->radio_needle_transparent,
+                                p->radio_needle_bg_color, p->radio_needle_color,
+                                MEDIA_SOURCE_RADIO);
+    }
+    if (p->radio_stereo_show_l || p->radio_stereo_show_r) {
+        vu_stereo_widget_create(parent,
+                                p->radio_stereo_show_l,
+                                p->radio_stereo_l_x, p->radio_stereo_l_y,
+                                p->radio_stereo_l_w, p->radio_stereo_l_h,
+                                p->radio_stereo_show_r,
+                                p->radio_stereo_r_x, p->radio_stereo_r_y,
+                                p->radio_stereo_r_w, p->radio_stereo_r_h,
+                                p->radio_stereo_horizontal, p->radio_stereo_frame,
+                                p->radio_stereo_transparent, p->radio_stereo_peak,
+                                p->radio_stereo_zones,
+                                p->radio_stereo_bg_color, p->radio_stereo_bar_color,
+                                MEDIA_SOURCE_RADIO);
+    }
+    if (p->radio_show_weather) {
+        weather_widget_create(parent, p->radio_weather_x, p->radio_weather_y,
+                              p->radio_weather_w, p->radio_weather_font,
+                              p->radio_label_bg_opa);
+    }
+#endif
+
+    if (p->radio_show_playback_status) {
+        // Center-anchored, content-hugging (so the label_bg plate tracks the
+        // text, not the full width) — mirrors the home clock labels.
+        s_label_state = ui_anchored_label(parent, p->radio_state_x, p->radio_state_y,
+                                          UI_ALIGN_CENTER);
+        lv_label_set_text(s_label_state, "");
+        lv_obj_set_style_text_font(s_label_state, p->radio_state_font, LV_PART_MAIN);
+#if defined(UI_PROFILE_MONO_128X64)
+        uint32_t state_color = p->radio_state_color ? p->radio_state_color : 0xFFFFFFu;
+#else
+        uint32_t state_color = p->radio_state_color ? p->radio_state_color : th->status_ok;
+#endif
+        lv_obj_set_style_text_color(s_label_state, lv_color_hex(state_color), LV_PART_MAIN);
+        ui_label_scrim(s_label_state, p->radio_label_bg_opa);
+    }
+
+    // Audio-info split: independently positioned center-anchored labels.
+    if (p->radio_samplerate_show)
+        s_label_samplerate = make_info_label(parent, p, p->radio_samplerate_x,
+                                             p->radio_samplerate_y);
+    if (p->radio_channels_show)
+        s_label_channels   = make_info_label(parent, p, p->radio_channels_x,
+                                             p->radio_channels_y);
+    if (p->radio_bitrate_show)
+        s_label_bitrate    = make_info_label(parent, p, p->radio_bitrate_x,
+                                             p->radio_bitrate_y);
+    if (p->radio_volume_show)
+        s_label_volume     = make_info_label(parent, p, p->radio_volume_x,
+                                             p->radio_volume_y);
+
+    refresh_from_state();
+
+    // Encoder ring only changes the screen. On the Mini there is no play/stop
+    // overlay, so landing here while an SD track is running used to leave the
+    // file playing with no way to cut it. Take over: last station, SD stops.
+    if (sd_player_is_active())
+        media_source_switch(MEDIA_SOURCE_RADIO);
+
+    if (p->radio_show_ctrl_overlay) {
+        controls_overlay_create(parent, CTRL_OVL_MODE_RADIO);
+    }
+    touch_hotspots_widget_create(parent, CONTROL_SOURCE_RADIO, p->radio_touch_hotspots);
+    // Created last so a hotspot rectangle configured over the same area can't
+    // shadow it (topmost clickable object wins the touch).
+    if (p->radio_volslider_show) {
+        vol_slider_widget_create(parent, p->radio_volslider_x, p->radio_volslider_y,
+                                 p->radio_volslider_w, p->radio_volslider_h,
+                                 p->radio_volslider_vertical,
+                                 p->radio_volslider_knob_only, false,
+                                 p->radio_volslider_knob_image,
+                                 p->radio_volslider_vol_max);
+    }
+
+    ESP_LOGI(TAG, "Created (theme=%d)", theme_current());
+}
+
+static void radio_destroy(void)
+{
+    vol_slider_widget_destroy();
+    touch_hotspots_widget_destroy();
+    controls_overlay_destroy();
+    vol_overlay_hide();
+#if !defined(UI_PROFILE_MONO_128X64)
+    vu_widget_destroy();
+    vu_needle_widget_destroy();
+    vu_stereo_widget_destroy();
+    animated_wheels_widget_destroy();
+    weather_widget_destroy();
+    station_icon_widget_destroy();
+#endif
+    now_playing_widget_destroy();
+    mode_indicator_destroy();
+    event_indicator_destroy();
+    clock_widget_destroy();
+    s_root             = NULL;
+    s_label_state      = NULL;
+    s_label_samplerate = NULL;
+    s_label_channels   = NULL;
+    s_label_bitrate    = NULL;
+    s_label_volume     = NULL;
+
+    ESP_LOGI(TAG, "Destroyed");
+}
+
+static void radio_on_event(const ui_event_t *ev)
+{
+    switch (ev->type) {
+        case UI_EVT_STATE_CHANGED:
+            refresh_from_state();
+#if !defined(UI_PROFILE_MONO_128X64)
+            if (ui_profile_get()->radio_show_station_icon) {
+                station_icon_widget_update();
+            }
+#endif
+            mode_indicator_update();
+            event_indicator_update();
+            clock_widget_tick();
+            break;
+        case UI_EVT_TITLE_CHANGED:
+            now_playing_widget_update();
+            break;
+        case UI_EVT_WEATHER_UPDATE:
+#if !defined(UI_PROFILE_MONO_128X64)
+            weather_widget_update();
+#endif
+            break;
+        case UI_EVT_RADIO_STATE:
+#if !defined(UI_PROFILE_MONO_128X64)
+            animated_wheels_widget_set_running(ev->radio_state == RADIO_STATE_PLAYING);
+#endif
+            if (s_label_state) {
+#if defined(UI_PROFILE_MONO_128X64)
+                refresh_from_state();
+#else
+                lv_label_set_text(s_label_state, radio_state_str(ev->radio_state));
+#endif
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+static void radio_on_input(ui_input_t input)
+{
+    switch (input) {
+        case UI_INPUT_ENCODER_CW:
+        case UI_INPUT_ENCODER_CCW: {
+            app_state_t *s = app_state_get();
+            int vol = s->volume;
+            vol += (input == UI_INPUT_ENCODER_CW) ? RADIO_VOL_STEP : -RADIO_VOL_STEP;
+            if (vol < 0)   vol = 0;
+            if (vol > 100) vol = 100;
+
+            settings_set_volume(vol);   // → audio_engine + app_state + save
+            vol_overlay_show(s_root, vol, true);
+            break;
+        }
+
+        case UI_INPUT_ENCODER_PRESS:
+        case UI_INPUT_SWIPE_RIGHT:
+            ui_nav_ring_next(SCREEN_RADIO);
+            break;
+        case UI_INPUT_ENCODER_LONG_PRESS:
+            screen_playlist_set_return(SCREEN_RADIO);
+            ui_navigate(SCREEN_PLAYLIST);
+            break;
+        case UI_INPUT_SWIPE_LEFT:
+            ui_nav_ring_prev(SCREEN_RADIO);
+            break;
+        case UI_INPUT_SWIPE_UP:
+            screen_playlist_set_return(SCREEN_RADIO);
+            ui_navigate(SCREEN_PLAYLIST);
+            break;
+
+        default:
+            break;
+    }
+}
+
+static void radio_apply_theme(void)
+{
+    if (!s_root) return;
+    const ui_theme_colors_t *th = theme_get();
+    const ui_profile_t      *p  = ui_profile_get();
+
+    lv_obj_set_style_bg_color(s_root, lv_color_hex(th->bg_primary), LV_PART_MAIN);
+
+    if (s_label_state) {
+#if defined(UI_PROFILE_MONO_128X64)
+        uint32_t state_color = p->radio_state_color ? p->radio_state_color : 0xFFFFFFu;
+#else
+        uint32_t state_color = p->radio_state_color ? p->radio_state_color : th->status_ok;
+#endif
+        lv_obj_set_style_text_color(s_label_state, lv_color_hex(state_color), LV_PART_MAIN);
+        ui_label_scrim(s_label_state, p->radio_label_bg_opa);
+    }
+    lv_obj_t *info_labels[] = { s_label_samplerate, s_label_channels,
+                                s_label_bitrate, s_label_volume };
+#if defined(UI_PROFILE_MONO_128X64)
+    uint32_t info_color = p->radio_info_color ? p->radio_info_color : 0xFFFFFFu;
+#else
+    uint32_t info_color = p->radio_info_color ? p->radio_info_color : th->text_muted;
+#endif
+    for (size_t i = 0; i < sizeof(info_labels) / sizeof(info_labels[0]); ++i) {
+        if (!info_labels[i]) continue;
+        lv_obj_set_style_text_color(info_labels[i], lv_color_hex(info_color), LV_PART_MAIN);
+        ui_label_scrim(info_labels[i], p->radio_label_bg_opa);
+    }
+
+    now_playing_widget_apply_theme();
+    vol_slider_widget_apply_theme();
+#if !defined(UI_PROFILE_MONO_128X64)
+    vu_widget_apply_theme();
+    vu_needle_widget_apply_theme();
+    vu_stereo_widget_apply_theme();
+    animated_wheels_widget_apply_theme();
+#endif
+    clock_widget_apply_theme();
+    mode_indicator_apply_theme();
+    event_indicator_apply_theme();
+
+    lv_obj_invalidate(s_root);
+}
+
+const ui_screen_t screen_radio = {
+    .create         = radio_create,
+    .destroy        = radio_destroy,
+    .apply_theme    = radio_apply_theme,
+    .on_event       = radio_on_event,
+    .on_input       = radio_on_input,
+    .name           = "radio",
+};

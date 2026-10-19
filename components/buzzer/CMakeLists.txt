@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "buzzer.c"
+        "melodies.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        driver
+        freertos
+)

@@ -1,0 +1,46 @@
+Firmware already matches this map. Use **GPIO 1–13 only**. Do not use 0, 19/20 (USB), 26–37 (flash/PSRAM), 43/44 (UART), or 45/46 (strapping).
+
+**MAX98357A (do this first when you want sound)**
+
+| Amp | ESP32-S3 Super Mini |
+|---|---|
+| BCLK | GPIO **1** |
+| LRC / WS | GPIO **2** |
+| DIN | GPIO **4** |
+| SD / SD_MODE | GPIO **7** |
+| VIN | 5 V (amp side) |
+| GND | GND |
+
+GPIO **7** is mute: firmware drives it **LOW** to mute, and **high-Z + pull-up** to unmute. **Never wire that pin so the ESP is forced to output HIGH.** For one speaker, leave GAIN as the module default; firmware already downmixes to mono. Optional later: 470 kΩ from SD to 5 V for L+R mix on the chip itself.
+
+You should already see `amp unmuted (GPIO 7 high-Z + pull-up)` at boot. After the amp is powered, Play 90s / SomaFM should make sound.
+
+**Already working (OLED)**
+
+| OLED SSD1306 | Pin |
+|---|---|
+| SDA | GPIO **8** |
+| SCL | GPIO **9** |
+| ADDR | **0x3C** |
+| RST | not used |
+
+**Encoder (when you add it)**
+
+| Encoder | Pin |
+|---|---|
+| CLK | GPIO **5** |
+| DT | GPIO **6** |
+| SW | GPIO **3** (idle pulled high) |
+
+**microSD (SPI, when you add it)**
+
+| SD | Pin |
+|---|---|
+| CS | GPIO **10** |
+| MOSI | GPIO **11** |
+| SCLK | GPIO **12** |
+| MISO | GPIO **13** |
+
+**Suggested order:** amp + speaker first (you can already play streams), then encoder, then SD. Share GND with the Super Mini. Keep I2S wires short.
+
+When you have the amp on the bench, say so and we can check mute, mono, and volume against the serial log.

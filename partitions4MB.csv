@@ -1,0 +1,24 @@
+# 4 MB Super Mini layout — single factory app (no dual OTA).
+#
+# Dual OTA needed two 1.625 MB slots; the radio image is ~1.81 MB and cannot
+# fit. One factory partition takes the space of both former OTA slots.
+# www + config stay at the same offsets so a USB app-only flash still keeps
+# the web UI and settings. Firmware updates are USB / serial only.
+#
+# Name      Offset     Size       Human
+# ----------------------------------------------
+# nvs       0x009000   0x006000   24 KB
+# phy_init  0x011000   0x001000   4 KB
+# coredump  0x012000   0x00E000   56 KB (fills hole before 64 KB-aligned factory)
+# factory   0x020000   0x340000   3.25 MB
+# www       0x360000   0x060000   384 KB
+# config    0x3C0000   0x040000   256 KB
+# ----------------------------------------------
+
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x6000
+phy_init,   data, phy,      0x11000,  0x1000
+coredump,   data, coredump, 0x12000,  0xE000
+factory,    app,  factory,  0x20000,  0x340000
+www,        data, spiffs,   0x360000, 0x60000
+config,     data, spiffs,   0x3C0000, 0x40000

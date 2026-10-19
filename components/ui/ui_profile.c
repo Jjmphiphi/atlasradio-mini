@@ -1,0 +1,2968 @@
+#include "defines.h"
+#include "ui_profile.h"
+#include "control_action.h"
+#include "fonts/ui_fonts.h"
+#include "cJSON.h"
+#include "esp_log.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define UI_PROFILE_FILE "/config/ui_profile.json"
+
+static const char *TAG = "UI_PROFILE";
+
+// Profile picked at compile time (Kconfig eventually). Stored in `k_defaults`
+// as "factory" values — used for reset and as a fallback during JSON load.
+// `s_runtime` is the live copy returned by ui_profile_get() — patchable from
+// the web and persisted to SPIFFS.
+
+#if defined(UI_PROFILE_MONO_128X64)
+
+static const ui_profile_t k_defaults = {
+    .clock_label_bg_opa       = 50,
+    .radio_label_bg_opa       = 50,
+    .sd_label_bg_opa          = 50,
+    .bt_label_bg_opa          = 50,
+    .clock_strip_x             = 0,
+    .clock_strip_y             = 48,
+    .clock_strip_w             = 128,
+    .clock_strip_h             = 16,
+    .clock_strip_bg_opa        = 100,
+    .clock_strip_station_w     = 124,
+    .clock_strip_station_x     = 0,
+    .clock_strip_station_y     = 0,
+    .clock_strip_title_w       = 124,
+    .clock_strip_title_x       = 0,
+    .clock_strip_title_y       = 16,   // clipped — 16px face, one strip line
+    .clock_strip_station_font  = &lv_font_montserrat_12_eu,
+    .clock_strip_title_font    = &lv_font_montserrat_12_eu,
+    .clock_time_x              = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .clock_time_y              = 0,
+    .clock_time_font           = &lv_font_montserrat_18_eu,
+    .clock_show_time           = true,
+    .clock_date_x              = DISPLAY_WIDTH / 2,  // centered
+    .clock_date_y              = 0,
+    .clock_date_font           = &lv_font_montserrat_12_eu,
+    .clock_show_date           = false,
+    .clock_show_strip          = true,
+    .clock_show_mode_indicator = false,
+    .clock_show_event_indicator = false,
+    .clock_mode_indic_x        = 108,
+    .clock_mode_indic_y        = 8,
+    .clock_event_indic_x       = 90,
+    .clock_event_indic_y       = 8,
+    .clock_show_weather        = false,   // no spare line on a 64px mono panel
+    .clock_weather_font        = &lv_font_montserrat_12_eu,
+
+    // Dual-color SSD1306: yellow rows 0–15, blue 16–63. Station name lives in
+    // the yellow band; ICY title / status / volume stack in the blue area.
+    // All radio text is #FFFFFF so 1-bit conversion keeps the glyphs on.
+    .radio_np_x                = 0,
+    .radio_np_y                = 0,
+    .radio_np_w                = 128,
+    .radio_show_np             = true,
+    .radio_show_np_title       = true,
+    .radio_title_x             = 0,
+    .radio_title_y             = 16,
+    .radio_title_w             = 128,
+    .radio_show_station_icon   = false,
+    .radio_station_icon_x      = 0,
+    .radio_station_icon_y      = 0,
+    .radio_station_icon_size   = 16,
+    .radio_np_station_font     = &lv_font_montserrat_12_eu,
+    .radio_np_title_font       = &lv_font_montserrat_12_eu,
+    .radio_np_color            = 0xFFFFFF,
+    .radio_title_color         = 0xFFFFFF,
+    .radio_show_playback_status = true,
+    .radio_state_x             = DISPLAY_WIDTH / 2,  // centered
+    .radio_state_y             = 32,
+    .radio_state_font          = &lv_font_montserrat_12_eu,
+    .radio_state_color         = 0xFFFFFF,
+    .radio_samplerate_show     = false,
+    .radio_samplerate_x        = 25,
+    .radio_samplerate_y        = 32,
+    .radio_channels_show       = false,
+    .radio_channels_x          = 57,
+    .radio_channels_y          = 32,
+    .radio_bitrate_show        = false,
+    .radio_bitrate_x           = 96,
+    .radio_bitrate_y           = 32,
+    .radio_volume_show         = true,
+    .radio_volume_x            = DISPLAY_WIDTH / 2,  // centered
+    .radio_volume_y            = 48,
+    .radio_audio_info_font     = &lv_font_montserrat_12_eu,
+    .radio_info_color          = 0xFFFFFF,
+    .radio_show_mode_indicator = false,
+    .radio_show_clock          = false,
+    .radio_show_event_indicator = false,
+    .radio_mode_indic_x        = 108,
+    .radio_mode_indic_y        = 8,
+    .radio_clock_widget_x      = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .radio_clock_widget_y      = 0,
+    .radio_clock_font          = &lv_font_montserrat_18_eu,
+    .radio_event_indic_x       = 90,
+    .radio_event_indic_y       = 8,
+    .radio_show_weather        = false,
+    .radio_weather_font        = &lv_font_montserrat_12_eu,
+    .radio_show_ctrl_overlay   = false,
+
+    .sd_title_x                = 10,    // full width minus margins
+    .sd_title_y                = 16,
+    .sd_title_w                = 108,
+    .sd_title_font             = &lv_font_montserrat_14_eu,
+    .sd_folder_x               = 10,    // full width minus margins
+    .sd_folder_y               = 0,
+    .sd_folder_w               = DISPLAY_WIDTH - 20,
+    .sd_folder_font            = &lv_font_montserrat_12_eu,
+    // Only volume fits the 128px mono strip — status flags off by default.
+    .sd_volume_show            = true,
+    .sd_volume_x               = DISPLAY_WIDTH / 2,  // centered
+    .sd_volume_y               = 48,
+    .sd_status_show            = false,
+    .sd_status_x               = 96,
+    .sd_status_y               = 48,
+    .sd_info_font              = &lv_font_montserrat_12_eu,
+    .sd_show_folder            = true,
+    .sd_show_time              = false,   // no spare line on a 64px mono panel
+    .sd_time_x                 = DISPLAY_WIDTH / 2,  // centered
+    .sd_time_y                 = 49,
+    .sd_show_bar               = false,
+    .sd_bar_x                  = 0,
+    .sd_bar_y                  = 0,
+    .sd_bar_w                  = 0,
+    .sd_bar_h                  = 0,
+    // No room for artwork next to the text on a 64px strip.
+    .sd_show_cover             = false,
+    .sd_cover_x                = 0,
+    .sd_cover_y                = 0,
+    .sd_cover_size             = 48,
+    .sd_show_mode_indicator    = false,
+    .sd_show_clock             = false,
+    .sd_show_event_indicator   = false,
+    .sd_mode_indic_x           = 108,
+    .sd_mode_indic_y           = 8,
+    .sd_clock_widget_x         = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .sd_clock_widget_y         = 0,
+    .sd_clock_font             = &lv_font_montserrat_18_eu,
+    .sd_event_indic_x          = 90,
+    .sd_event_indic_y          = 8,
+    .sd_show_weather           = false,
+    .sd_weather_font           = &lv_font_montserrat_12_eu,
+    .sd_show_ctrl_overlay      = true,
+    .bt_show_ctrl_overlay      = true,
+
+    .playlist_header_h         = 16,   // yellow band
+    .playlist_header_hide      = false,
+    .playlist_hint_hide        = true,
+    .playlist_label_x          = 2,
+    .playlist_label_y          = 0,
+    .playlist_item_h           = 16,   // matches 8x16 cell
+    .playlist_item_pad         = 0,
+    .playlist_row_pad_left     = 2,
+    .playlist_label_bg_opa     = 100,
+    .playlist_header_font      = &lv_font_montserrat_12_eu,
+    .playlist_row_font         = &lv_font_montserrat_12_eu,
+    .playlist_row_bg_color     = 0x000000,
+    .playlist_row_text_color   = 0xFFFFFF,
+    .playlist_cursor_bg_color  = 0xFFFFFF,
+    .playlist_cursor_text_color = 0x000000,
+
+    .browser_header_h          = 16,
+    .browser_hint_hide         = true,
+    .browser_label_x           = 2,
+    .browser_label_y           = 0,
+    .browser_item_h            = 16,
+    .browser_item_pad          = 0,
+    .browser_row_pad_left      = 2,
+    .browser_label_bg_opa      = 100,
+    .browser_header_font       = &lv_font_montserrat_12_eu,
+    .browser_row_font          = &lv_font_montserrat_12_eu,
+    .browser_row_bg_color      = 0x000000,
+    .browser_row_text_color    = 0xFFFFFF,
+    .browser_cursor_bg_color   = 0xFFFFFF,
+    .browser_cursor_text_color = 0x000000,
+
+    // BT: on 128x64 the circle makes no sense — text only
+    .bt_circle_x               = 0,
+    .bt_circle_y               = 0,
+    .bt_circle_w               = 0,
+    .bt_circle_h               = 0,
+    .bt_icon_font              = &lv_font_montserrat_12_eu,
+    .bt_show_circle            = false,
+    .bt_brand_x                = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_brand_y                = 4,
+    .bt_brand_font             = &lv_font_montserrat_14_eu,
+    .bt_status_x               = DISPLAY_WIDTH / 2,  // centered
+    .bt_status_y               = 22,
+    .bt_status_font            = &lv_font_montserrat_12_eu,
+    .bt_vol_x                  = DISPLAY_WIDTH / 2,  // centered, one line below time
+    .bt_vol_y                  = 70,
+    .bt_vol_label_font         = &lv_font_montserrat_12_eu,
+    .bt_show_mode_indicator    = false,
+    .bt_show_clock             = false,
+    .bt_mode_indic_x           = 108,
+    .bt_mode_indic_y           = 8,
+    .bt_clock_widget_x         = 39,
+    .bt_clock_widget_y         = 0,
+    .bt_clock_font             = &lv_font_montserrat_18_eu,
+    .bt_title_x                = 4,
+    .bt_title_y                = 30,
+    .bt_title_w                = 124,
+    .bt_title_font             = &lv_font_montserrat_12_eu,
+    .bt_artist_x               = 4,
+    .bt_artist_y               = 42,
+    .bt_artist_w               = 124,
+    .bt_artist_font            = &lv_font_montserrat_12_eu,
+    .bt_time_x                 = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_time_y                 = 54,
+    .bt_time_font              = &lv_font_montserrat_12_eu,
+
+    .settings_title_y          = 2,
+    .settings_row_w            = 124,
+    .settings_row_h            = 22,
+    .settings_row_pad          = 2,      // mono: tight card padding
+    .settings_title_in_list    = true,   // title scrolls with the list
+    .settings_row1_y           = 16,
+    .settings_row2_y           = 40,
+    .settings_row3_y           = 64,
+    .settings_slider_w         = 80,
+    .settings_slider_h         = 3,
+    .settings_show_slider      = false,
+    .settings_hint_y           = -2,
+    .settings_title_font       = &lv_font_montserrat_12_eu,
+    .settings_row_font         = &lv_font_montserrat_12_eu,
+    .settings_value_font       = &lv_font_montserrat_12_eu,
+    .settings_hint_font        = &lv_font_montserrat_12_eu,
+
+    // 128x64 mono — 10 bands very tight: 12 px/band wide, thin slider
+    .eq_title_y                = 0,
+    .eq_info_y                 = 0,
+    .eq_band_area_y            = 12,
+    .eq_slider_h               = 38,
+    .eq_slider_w               = 3,
+    .eq_group_w                = 111,  // span: 9 steps of 12 + the last slider (3)
+    .eq_group_x                = 8,    // (128 - 111) / 2
+    .eq_group_y                = 12,
+    .eq_hint_y                 = -2,
+    .eq_title_font             = &lv_font_montserrat_12_eu,
+    .eq_info_font              = &lv_font_montserrat_12_eu,
+    .eq_freq_font              = &lv_font_montserrat_12_eu,
+    .eq_hint_font              = &lv_font_montserrat_12_eu,
+
+    .events_header_h           = 12,
+    .events_item_h             = 22,
+    .events_item_pad           = 1,
+    .events_row_w              = 124,
+    .events_row_label_w        = 116,
+    .events_row_pad_hor        = 4,
+    .events_header_font        = &lv_font_montserrat_12_eu,
+    .events_title_font         = &lv_font_montserrat_12_eu,
+    .events_meta_font          = &lv_font_montserrat_12_eu,
+
+    .wifi_title_y              = 2,
+    .wifi_card_w               = 124,
+    .wifi_card_h               = 44,
+    .wifi_card_y               = 2,
+    .wifi_card_pad_hor         = 6,
+    .wifi_card_pad_ver         = 4,
+    .wifi_row2_y               = 12,
+    .wifi_row3_y               = 24,
+    .wifi_hint_y               = -2,
+    .wifi_title_font           = &lv_font_montserrat_12_eu,
+    .wifi_key_font             = &lv_font_montserrat_12_eu,
+    .wifi_value_font           = &lv_font_montserrat_12_eu,
+    .wifi_hint_font            = &lv_font_montserrat_12_eu,
+};
+
+#elif defined(UI_PROFILE_MONO_256X64)
+
+// 256x64 mono OLED (SSD1322). Twice the width of the 128x64 profile, same
+// height — so the date fits next to the time. First-cut coordinates; fine-tune
+// on the physical panel. Only the _eu text fonts fit a 64px-tall panel
+// (the digit-only _72/_80/_96 are too tall).
+static const ui_profile_t k_defaults = {
+    .clock_label_bg_opa       = 50,
+    .radio_label_bg_opa       = 50,
+    .sd_label_bg_opa          = 50,
+    .bt_label_bg_opa          = 50,
+    .clock_strip_x             = 0,
+    .clock_strip_y             = 33,
+    .clock_strip_w             = 256,
+    .clock_strip_h             = 30,
+    .clock_strip_bg_opa        = 100,
+    .clock_strip_station_w     = 252,
+    .clock_strip_station_x     = 0,
+    .clock_strip_station_y     = 2,
+    .clock_strip_title_w       = 252,
+    .clock_strip_title_x       = 0,
+    .clock_strip_title_y       = 12,
+    .clock_strip_station_font  = &lv_font_montserrat_12_eu,
+    .clock_strip_title_font    = &lv_font_montserrat_12_eu,
+    .clock_time_x              = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .clock_time_y              = 4,
+    .clock_time_font           = &lv_font_montserrat_18_eu,
+    .clock_show_time           = true,
+    .clock_date_x              = DISPLAY_WIDTH / 2,  // centered
+    .clock_date_y              = 7,
+    .clock_date_font           = &lv_font_montserrat_12_eu,
+    .clock_show_date           = true,
+    .clock_show_strip          = true,
+    .clock_show_mode_indicator = true,
+    .clock_show_event_indicator = true,
+    .clock_mode_indic_x        = 236,
+    .clock_mode_indic_y        = 4,
+    .clock_event_indic_x       = 216,
+    .clock_event_indic_y       = 4,
+    .clock_show_weather        = false,   // no spare line on a 64px mono panel
+    .clock_weather_font        = &lv_font_montserrat_12_eu,
+
+    .radio_np_x                = 10,
+    .radio_np_y                = 1,
+    .radio_np_w                = 236,
+    .radio_show_np             = true,
+    .radio_show_np_title       = true,
+    .radio_title_x             = 10,
+    .radio_title_y             = 26,
+    .radio_title_w             = 236,
+    .radio_show_station_icon   = true,
+    .radio_station_icon_x      = 10,
+    .radio_station_icon_y      = 1,
+    .radio_station_icon_size   = 64,
+    .radio_np_station_font     = &lv_font_montserrat_18_eu,
+    .radio_np_title_font       = &lv_font_montserrat_14_eu,
+    .radio_show_playback_status = true,
+    .radio_state_x             = DISPLAY_WIDTH / 2,  // centered
+    .radio_state_y             = 44,
+    .radio_state_font          = &lv_font_montserrat_12_eu,
+    // One row, spread like the former combined audio-info line.
+    .radio_samplerate_show     = true,
+    .radio_samplerate_x        = 38,
+    .radio_samplerate_y        = 52,
+    .radio_channels_show       = true,
+    .radio_channels_x          = 100,
+    .radio_channels_y          = 52,
+    .radio_bitrate_show        = true,
+    .radio_bitrate_x           = 154,
+    .radio_bitrate_y           = 52,
+    .radio_volume_show         = true,
+    .radio_volume_x            = 218,
+    .radio_volume_y            = 52,
+    .radio_audio_info_font     = &lv_font_montserrat_12_eu,
+    .radio_show_mode_indicator = false,
+    .radio_show_clock          = false,
+    .radio_show_event_indicator = false,
+    .radio_mode_indic_x        = 236,
+    .radio_mode_indic_y        = 4,
+    .radio_clock_widget_x      = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .radio_clock_widget_y      = 0,
+    .radio_clock_font          = &lv_font_montserrat_18_eu,
+    .radio_event_indic_x       = 216,
+    .radio_event_indic_y       = 4,
+    .radio_show_weather        = false,
+    .radio_weather_font        = &lv_font_montserrat_12_eu,
+    .radio_show_ctrl_overlay   = true,
+
+    .sd_title_x                = 10,    // full width minus margins
+    .sd_title_y                = 1,
+    .sd_title_w                = 236,
+    .sd_title_font             = &lv_font_montserrat_14_eu,
+    .sd_folder_x               = 10,    // full width minus margins
+    .sd_folder_y               = 44,
+    .sd_folder_w               = DISPLAY_WIDTH - 20,
+    .sd_folder_font            = &lv_font_montserrat_12_eu,
+    .sd_volume_show            = true,
+    .sd_volume_x               = 64,
+    .sd_volume_y               = 52,
+    .sd_status_show            = true,
+    .sd_status_x               = 176,
+    .sd_status_y               = 52,
+    .sd_info_font              = &lv_font_montserrat_12_eu,
+    .sd_show_folder            = true,
+    .sd_show_time              = false,   // no spare line on a 64px mono panel
+    .sd_time_x                 = DISPLAY_WIDTH / 2,  // centered
+    .sd_time_y                 = 71,
+    .sd_show_bar               = false,
+    .sd_bar_x                  = 0,
+    .sd_bar_y                  = 0,
+    .sd_bar_w                  = 0,
+    .sd_bar_h                  = 0,
+    // No room for artwork next to the text on a 64px strip.
+    .sd_show_cover             = false,
+    .sd_cover_x                = 0,
+    .sd_cover_y                = 0,
+    .sd_cover_size             = 56,
+    .sd_show_mode_indicator    = false,
+    .sd_show_clock             = false,
+    .sd_show_event_indicator   = false,
+    .sd_mode_indic_x           = 236,
+    .sd_mode_indic_y           = 4,
+    .sd_clock_widget_x         = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .sd_clock_widget_y         = 0,
+    .sd_clock_font             = &lv_font_montserrat_18_eu,
+    .sd_event_indic_x          = 216,
+    .sd_event_indic_y          = 4,
+    .sd_show_weather           = false,
+    .sd_weather_font           = &lv_font_montserrat_12_eu,
+    .sd_show_ctrl_overlay      = true,
+    .bt_show_ctrl_overlay      = true,
+
+    .playlist_header_h         = 16,
+    .playlist_item_h           = 14,
+    .playlist_item_pad         = 1,
+    .playlist_row_pad_left     = 4,
+    .playlist_label_bg_opa     = 100,
+    .playlist_header_font      = &lv_font_montserrat_12_eu,
+    .playlist_row_font         = &lv_font_montserrat_12_eu,
+
+    .browser_header_h          = 16,
+    .browser_item_h            = 14,
+    .browser_item_pad          = 1,
+    .browser_row_pad_left      = 4,
+    .browser_label_bg_opa      = 100,
+    .browser_header_font       = &lv_font_montserrat_12_eu,
+    .browser_row_font          = &lv_font_montserrat_12_eu,
+
+    // BT: text only — circle makes no sense on a 64px-tall strip
+    .bt_circle_x               = 0,
+    .bt_circle_y               = 0,
+    .bt_circle_w               = 0,
+    .bt_circle_h               = 0,
+    .bt_icon_font              = &lv_font_montserrat_12_eu,
+    .bt_show_circle            = false,
+    .bt_brand_x                = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_brand_y                = 2,
+    .bt_brand_font             = &lv_font_montserrat_12_eu,
+    .bt_status_x               = DISPLAY_WIDTH / 2,  // centered
+    .bt_status_y               = 18,
+    .bt_status_font            = &lv_font_montserrat_10_eu,
+    .bt_vol_x                  = DISPLAY_WIDTH / 2,  // centered, one line below time
+    .bt_vol_y                  = 66,
+    .bt_vol_label_font         = &lv_font_montserrat_10_eu,
+    .bt_show_mode_indicator    = false,
+    .bt_show_clock             = false,
+    .bt_mode_indic_x           = 236,
+    .bt_mode_indic_y           = 4,
+    .bt_clock_widget_x         = 100,
+    .bt_clock_widget_y         = 0,
+    .bt_clock_font             = &lv_font_montserrat_18_eu,
+    .bt_title_x                = 8,
+    .bt_title_y                = 34,
+    .bt_title_w                = 240,
+    .bt_title_font             = &lv_font_montserrat_10_eu,
+    .bt_artist_x               = 8,
+    .bt_artist_y               = 46,
+    .bt_artist_w               = 240,
+    .bt_artist_font            = &lv_font_montserrat_10_eu,
+    .bt_time_x                 = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_time_y                 = 52,
+    .bt_time_font              = &lv_font_montserrat_10_eu,
+
+    .settings_title_y          = 0,
+    .settings_row_w            = 248,
+    .settings_row_h            = 22,
+    .settings_row_pad          = 2,      // mono: tight card padding
+    .settings_title_in_list    = true,   // title scrolls with the list
+    .settings_row1_y           = 16,
+    .settings_row2_y           = 40,   // step = 24 → 2px gap over row_h 22
+    .settings_row3_y           = 64,   // = row1 + 2*step (Mode row)
+    .settings_slider_w         = 140,
+    .settings_slider_h         = 4,
+    .settings_show_slider      = false,  // no touch on mono → slider would only overlap the label
+    .settings_hint_y           = -1,
+    // header + footer in compact montserrat_8_eu; rows stay _12_pl (readable)
+    .settings_title_font       = &lv_font_montserrat_8_eu,
+    .settings_row_font         = &lv_font_montserrat_12_eu,
+    .settings_value_font       = &lv_font_montserrat_12_eu,
+    .settings_hint_font        = &lv_font_montserrat_8_eu,
+
+    // 256 wide / 10 bands → 25 px per band
+    .eq_title_y                = 0,
+    .eq_info_y                 = 0,
+    .eq_band_area_y            = 12,
+    .eq_slider_h               = 38,
+    .eq_slider_w               = 4,
+    .eq_group_w                = 229,  // span: 9 steps of 25 + the last slider (4)
+    .eq_group_x                = 13,   // (256 - 229) / 2
+    .eq_group_y                = 12,
+    .eq_hint_y                 = -2,
+    .eq_title_font             = &lv_font_montserrat_12_eu,
+    .eq_info_font              = &lv_font_montserrat_12_eu,
+    .eq_freq_font              = &lv_font_montserrat_12_eu,
+    .eq_hint_font              = &lv_font_montserrat_12_eu,
+
+    .events_header_h           = 12,
+    .events_item_h             = 22,
+    .events_item_pad           = 1,
+    .events_row_w              = 252,
+    .events_row_label_w        = 244,
+    .events_row_pad_hor        = 4,
+    .events_header_font        = &lv_font_montserrat_12_eu,
+    .events_title_font         = &lv_font_montserrat_12_eu,
+    .events_meta_font          = &lv_font_montserrat_12_eu,
+
+    .wifi_title_y              = 2,
+    .wifi_card_w               = 248,
+    .wifi_card_h               = 44,
+    .wifi_card_y               = 2,
+    .wifi_card_pad_hor         = 6,
+    .wifi_card_pad_ver         = 4,
+    .wifi_row2_y               = 12,
+    .wifi_row3_y               = 24,
+    .wifi_hint_y               = -2,
+    .wifi_title_font           = &lv_font_montserrat_12_eu,
+    .wifi_key_font             = &lv_font_montserrat_12_eu,
+    .wifi_value_font           = &lv_font_montserrat_12_eu,
+    .wifi_hint_font            = &lv_font_montserrat_12_eu,
+};
+
+#elif defined(UI_PROFILE_240X296)
+
+static const ui_profile_t k_defaults = {
+    .clock_label_bg_opa       = 50,
+    .radio_label_bg_opa       = 50,
+    .sd_label_bg_opa          = 50,
+    .bt_label_bg_opa          = 50,
+    // Clock face: large clock on top, station/title strip underneath
+    .clock_strip_x             = 0,
+    .clock_strip_y             = 193,
+    .clock_strip_w             = 240,
+    .clock_strip_h             = 103,
+    .clock_strip_bg_opa        = 100,
+    .clock_strip_station_w     = 220,
+    .clock_strip_station_x     = 0,
+    .clock_strip_station_y     = 10,
+    .clock_strip_title_w       = 220,
+    .clock_strip_title_x       = 0,
+    .clock_strip_title_y       = 40,
+    .clock_strip_station_font  = &lv_font_montserrat_14_eu,
+    .clock_strip_title_font    = &lv_font_montserrat_12_eu,
+    .clock_time_x              = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .clock_time_y              = 45,
+    .clock_time_font           = &lv_font_montserrat_72, // Choose the largest available, e.g. 48 or 64
+    .clock_show_time           = true,
+    .clock_date_x              = DISPLAY_WIDTH / 2,  // centered
+    .clock_date_y              = 128,
+    .clock_date_font           = &lv_font_montserrat_18_eu,
+    .clock_show_date           = true,
+    .clock_show_netinfo        = true,
+    .clock_netinfo_x           = DISPLAY_WIDTH / 2,  // centered
+    .clock_netinfo_y           = 158,
+    .clock_netinfo_font        = &lv_font_montserrat_12_eu,
+    .clock_show_strip          = true,
+    .clock_show_mode_indicator = true,
+    .clock_show_event_indicator = true,
+    .clock_mode_indic_x        = 170,
+    .clock_mode_indic_y        = 1,
+    .clock_event_indic_x       = 150,
+    .clock_event_indic_y       = 1,
+    .clock_show_weather        = true,    // label hides itself until data is valid
+    .clock_weather_x           = 0,
+    .clock_weather_y           = 174,     // below netinfo, above the strip
+    .clock_weather_w           = 240,
+    .clock_weather_font        = &lv_font_montserrat_12_eu,
+
+    // Radio: Station info and large volume slider
+    .radio_np_x                = 82,     // after the default 64px station icon
+    .radio_np_y                = 60,
+    .radio_np_w                = 148,
+    .radio_show_np             = true,
+    .radio_show_np_title       = true,
+    .radio_title_x             = 82,
+    .radio_title_y             = 85,
+    .radio_title_w             = 148,
+    .radio_show_station_icon   = true,
+    .radio_station_icon_x      = 10,
+    .radio_station_icon_y      = 60,
+    .radio_station_icon_size   = 64,
+    .radio_np_station_font     = &lv_font_montserrat_18_eu,
+    .radio_np_title_font       = &lv_font_montserrat_14_eu,
+    .radio_show_playback_status = true,
+    .radio_state_x             = DISPLAY_WIDTH / 2,  // centered
+    .radio_state_y             = 216,
+    .radio_state_font          = &lv_font_montserrat_14_eu,
+    // One row, spread like the former combined audio-info line.
+    .radio_samplerate_show     = true,
+    .radio_samplerate_x        = 36,
+    .radio_samplerate_y        = 164,
+    .radio_channels_show       = true,
+    .radio_channels_x          = 91,
+    .radio_channels_y          = 164,
+    .radio_bitrate_show        = true,
+    .radio_bitrate_x           = 144,
+    .radio_bitrate_y           = 164,
+    .radio_volume_show         = true,
+    .radio_volume_x            = 204,
+    .radio_volume_y            = 164,
+    .radio_audio_info_font     = &lv_font_montserrat_12_eu,
+    .radio_show_mode_indicator = true,
+    .radio_show_clock          = true,
+    .radio_show_event_indicator = true,
+    .radio_mode_indic_x        = 170,
+    .radio_mode_indic_y        = 3,
+    .radio_clock_widget_x      = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .radio_clock_widget_y      = 2,
+    .radio_clock_font          = &lv_font_montserrat_18_eu,
+    .radio_event_indic_x       = 150,
+    .radio_event_indic_y       = 3,
+    .radio_show_vu             = true,
+    .radio_vu_x                = 1,
+    .radio_vu_y                = 238,
+    .radio_vu_w                = 238,
+    .radio_vu_h                = 58,
+    .radio_needle_l_x          = 6,
+    .radio_needle_l_y          = 118,
+    .radio_needle_l_w          = 110,
+    .radio_needle_l_h          = 72,
+    .radio_needle_r_x          = 124,
+    .radio_needle_r_y          = 118,
+    .radio_needle_r_w          = 110,
+    .radio_needle_r_h          = 72,
+    .radio_stereo_frame        = true,
+    .radio_stereo_peak         = true,
+    .radio_stereo_zones        = true,
+    .radio_stereo_l_x          = 88,
+    .radio_stereo_l_y          = 118,
+    .radio_stereo_l_w          = 26,
+    .radio_stereo_l_h          = 72,
+    .radio_stereo_r_x          = 126,
+    .radio_stereo_r_y          = 118,
+    .radio_stereo_r_w          = 26,
+    .radio_stereo_r_h          = 72,
+    .radio_show_cassette       = true,
+    .radio_show_wheel_left     = true,
+    .radio_show_wheel_right    = true,
+    .radio_cassette_l_x        = 39,
+    .radio_cassette_l_y        = 120,
+    .radio_cassette_l_size     = 56,
+    .radio_cassette_r_x        = 144,
+    .radio_cassette_r_y        = 120,
+    .radio_cassette_r_size     = 56,
+    .radio_show_weather        = false,
+    .radio_weather_x           = 0,
+    .radio_weather_y           = 3,       // top-left row, clear of the centered clock
+    .radio_weather_w           = 120,
+    .radio_weather_font        = &lv_font_montserrat_12_eu,
+    .radio_show_ctrl_overlay   = true,
+    .radio_volslider_show      = false,
+    .radio_volslider_vertical  = false,
+    .radio_volslider_knob_only = false,
+    .radio_volslider_x         = 20,
+    .radio_volslider_y         = 212,
+    .radio_volslider_w         = 200,
+    .radio_volslider_h         = 14,
+    .radio_volslider_vol_max   = 100,
+
+    .sd_title_x                = 10,    // full width minus margins
+    .sd_title_y                = 60,
+    .sd_title_w                = 220,
+    .sd_title_font             = &lv_font_montserrat_14_eu,
+    .sd_folder_x               = 10,    // full width minus margins
+    .sd_folder_y               = 216,
+    .sd_folder_w               = DISPLAY_WIDTH - 20,
+    .sd_folder_font            = &lv_font_montserrat_14_eu,
+    // Info row split; y raised so the "elapsed/total" line fits above the VU.
+    .sd_volume_show            = true,
+    .sd_volume_x               = 60,
+    .sd_volume_y               = 170,
+    .sd_status_show            = true,
+    .sd_status_x               = 160,
+    .sd_status_y               = 170,
+    .sd_info_font              = &lv_font_montserrat_12_eu,
+    .sd_show_folder            = true,
+    .sd_show_time              = true,
+    .sd_time_x                 = DISPLAY_WIDTH / 2,  // centered
+    .sd_time_y                 = 189,
+    .sd_show_bar               = true,
+    .sd_bar_x                  = 20,    // (240 - 200) / 2, under the time row
+    .sd_bar_y                  = 208,
+    .sd_bar_w                  = 200,
+    .sd_bar_h                  = 6,
+    // Off by default — the artwork is opt-in, so a card without covers keeps
+    // the layout it has today. The geometry is a usable starting point for the
+    // layout editor: the free band between the title and the info row.
+    .sd_show_cover             = false,
+    .sd_cover_x                = 80,    // (240 - 80) / 2, centered
+    .sd_cover_y                = 85,
+    .sd_cover_size             = 80,
+    .sd_show_mode_indicator    = true,
+    .sd_show_clock             = true,
+    .sd_show_event_indicator   = true,
+    .sd_mode_indic_x           = 170,
+    .sd_mode_indic_y           = 3,
+    .sd_clock_widget_x         = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .sd_clock_widget_y         = 2,
+    .sd_clock_font             = &lv_font_montserrat_18_eu,
+    .sd_event_indic_x          = 150,
+    .sd_event_indic_y          = 3,
+    .sd_show_vu                = true,
+    .sd_vu_x                   = 1,
+    .sd_vu_y                   = 238,
+    .sd_vu_w                   = 238,
+    .sd_vu_h                   = 58,
+    .sd_needle_l_x             = 6,
+    .sd_needle_l_y             = 118,
+    .sd_needle_l_w             = 110,
+    .sd_needle_l_h             = 72,
+    .sd_needle_r_x             = 124,
+    .sd_needle_r_y             = 118,
+    .sd_needle_r_w             = 110,
+    .sd_needle_r_h             = 72,
+    .sd_stereo_frame           = true,
+    .sd_stereo_peak            = true,
+    .sd_stereo_zones           = true,
+    .sd_stereo_l_x             = 88,
+    .sd_stereo_l_y             = 118,
+    .sd_stereo_l_w             = 26,
+    .sd_stereo_l_h             = 72,
+    .sd_stereo_r_x             = 126,
+    .sd_stereo_r_y             = 118,
+    .sd_stereo_r_w             = 26,
+    .sd_stereo_r_h             = 72,
+    .sd_show_cassette          = true,
+    .sd_show_wheel_left        = true,
+    .sd_show_wheel_right       = true,
+    .sd_cassette_l_x           = 39,
+    .sd_cassette_l_y           = 120,
+    .sd_cassette_l_size        = 56,
+    .sd_cassette_r_x           = 144,
+    .sd_cassette_r_y           = 120,
+    .sd_cassette_r_size        = 56,
+    .sd_show_weather           = false,
+    .sd_weather_x              = 0,
+    .sd_weather_y              = 3,       // top-left row, clear of the centered clock
+    .sd_weather_w              = 120,
+    .sd_weather_font           = &lv_font_montserrat_12_eu,
+    .sd_show_ctrl_overlay      = true,
+    .sd_volslider_show         = false,
+    .sd_volslider_vertical     = false,
+    .sd_volslider_knob_only    = false,
+    .sd_volslider_x            = 20,
+    .sd_volslider_y            = 212,
+    .sd_volslider_w            = 200,
+    .sd_volslider_h            = 14,
+    .sd_volslider_vol_max      = 100,
+    .bt_show_ctrl_overlay      = true,
+    .bt_volslider_show         = false,
+    .bt_volslider_vertical     = false,
+    .bt_volslider_knob_only    = false,
+    .bt_volslider_x            = 20,
+    .bt_volslider_y            = 232,
+    .bt_volslider_w            = 200,
+    .bt_volslider_h            = 14,
+    .bt_volslider_vol_max      = 100,
+
+    // Playlist: We use the screen height for more list items
+    .playlist_header_h         = 45,
+    .playlist_item_h           = 34,
+    .playlist_item_pad         = 2,
+    .playlist_row_pad_left     = 10,
+    .playlist_label_bg_opa     = 100,
+    .playlist_label_x          = 90,
+    .playlist_label_y          = -10,
+    .playlist_hint_x           = -20,
+    .playlist_hint_y           = 10,
+    .playlist_header_font      = &lv_font_montserrat_14_eu,
+    .playlist_row_font         = &lv_font_montserrat_14_eu,
+
+    .browser_header_h          = 45,
+    .browser_item_h            = 34,
+    .browser_item_pad          = 2,
+    .browser_row_pad_left      = 10,
+    .browser_label_bg_opa      = 100,
+    .browser_label_x           = 90,
+    .browser_label_y           = -10,
+    .browser_hint_x            = -20,
+    .browser_hint_y            = 10,
+    .browser_header_font       = &lv_font_montserrat_14_eu,
+    .browser_row_font          = &lv_font_montserrat_14_eu,
+
+    // Bluetooth: small BT icon at top, brand + status, then track metadata
+    .bt_circle_x               = (DISPLAY_WIDTH - 60) / 2,  // centered on screen
+    .bt_circle_y               = 35,
+    .bt_circle_w               = 60,
+    .bt_circle_h               = 60,
+    .bt_icon_font              = &lv_font_montserrat_18_eu,
+    .bt_show_circle            = true,
+    .bt_brand_x                = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_brand_y                = 100,
+    .bt_brand_font             = &lv_font_montserrat_14_eu,
+    .bt_status_x               = DISPLAY_WIDTH / 2,  // centered
+    .bt_status_y               = 122,
+    .bt_status_font            = &lv_font_montserrat_12_eu,
+    .bt_vol_x                  = DISPLAY_WIDTH / 2,  // centered, one line below time
+    .bt_vol_y                  = 258,
+    .bt_vol_label_font         = &lv_font_montserrat_14_eu,
+    .bt_show_mode_indicator    = true,
+    .bt_show_clock             = true,
+    .bt_mode_indic_x           = 170,
+    .bt_mode_indic_y           = 3,
+    .bt_clock_widget_x         = 95,
+    .bt_clock_widget_y         = 2,
+    .bt_clock_font             = &lv_font_montserrat_18_eu,
+    .bt_title_x                = 10,
+    .bt_title_y                = 150,
+    .bt_title_w                = 220,
+    .bt_title_font             = &lv_font_montserrat_14_eu,
+    .bt_artist_x               = 10,
+    .bt_artist_y               = 180,
+    .bt_artist_w               = 220,
+    .bt_artist_font            = &lv_font_montserrat_12_eu,
+    .bt_time_x                 = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_time_y                 = 240,
+    .bt_time_font              = &lv_font_montserrat_14_eu,
+
+    // Settings
+    .settings_title_y          = 10,
+    .settings_row_w            = 220,
+    .settings_row_h            = 52,
+    .settings_row_pad          = 8,
+    .settings_title_in_list    = false,
+    .settings_row1_y           = 45,
+    .settings_row2_y           = 105,   // skok 60 → gap 8 nad row_h 52
+    .settings_row3_y           = 165,   // = row1 + 2*skok
+    .settings_slider_w         = 140,
+    .settings_slider_h         = 8,
+    .settings_show_slider      = true,
+    .settings_hint_y           = -10,
+    .settings_title_font       = &lv_font_montserrat_14_eu,
+    .settings_row_font         = &lv_font_montserrat_14_eu,
+    .settings_value_font       = &lv_font_montserrat_14_eu,
+    .settings_hint_font        = &lv_font_montserrat_12_eu,
+
+    // Equalizer: Narrower bars to fit 10 bands in a 240 width
+    .eq_title_y                = 10,
+    .eq_info_y                 = 35,
+    .eq_band_area_y            = 70,
+    .eq_slider_h               = 160,
+    .eq_slider_w               = 6,
+    .eq_group_w                = 204,  // span: 9 steps of 22 + the last slider (6)
+    .eq_group_x                = 18,   // (240 - 204) / 2
+    .eq_group_y                = 70,
+    .eq_hint_y                 = -8,
+    .eq_title_font             = &lv_font_montserrat_18_eu,
+    .eq_info_font              = &lv_font_montserrat_14_eu,
+    .eq_freq_font              = &lv_font_montserrat_12_eu, // Smaller font for frequency
+    .eq_hint_font              = &lv_font_montserrat_12_eu,
+
+    // Events
+    .events_header_h           = 30,
+    .events_item_h             = 50,
+    .events_item_pad           = 4,
+    .events_row_w              = 232,
+    .events_row_label_w        = 215,
+    .events_row_pad_hor        = 8,
+    .events_header_font        = &lv_font_montserrat_14_eu,
+    .events_title_font         = &lv_font_montserrat_14_eu,
+    .events_meta_font          = &lv_font_montserrat_12_eu,
+
+    // WiFi Card
+    .wifi_title_y              = 20,
+    .wifi_card_w               = 220,
+    .wifi_card_h               = 160,
+    .wifi_card_y               = 10,
+    .wifi_card_pad_hor         = 12,
+    .wifi_card_pad_ver         = 15,
+    .wifi_row2_y               = 45,
+    .wifi_row3_y               = 90,
+    .wifi_hint_y               = -15,
+    .wifi_title_font           = &lv_font_montserrat_18_eu,
+    .wifi_key_font             = &lv_font_montserrat_12_eu,
+    .wifi_value_font           = &lv_font_montserrat_14_eu,
+    .wifi_hint_font            = &lv_font_montserrat_12_eu,
+};
+
+#elif defined(UI_PROFILE_320x240)
+
+static const ui_profile_t k_defaults = {
+    .clock_label_bg_opa       = 50,
+    .radio_label_bg_opa       = 50,
+    .sd_label_bg_opa          = 50,
+    .bt_label_bg_opa          = 50,
+    .clock_strip_x             = 0,
+    .clock_strip_y             = 178,
+    .clock_strip_w             = 320,
+    .clock_strip_h             = 62,
+    .clock_strip_bg_opa        = 100,
+    .clock_strip_station_w     = 296,
+    .clock_strip_station_x     = 0,
+    .clock_strip_station_y     = 8,
+    .clock_strip_title_w       = 296,
+    .clock_strip_title_x       = 0,
+    .clock_strip_title_y       = 32,
+    .clock_strip_station_font  = &lv_font_montserrat_14_eu,
+    .clock_strip_title_font    = &lv_font_montserrat_12_eu,
+    .clock_time_x              = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .clock_time_y              = 25,
+    .clock_time_font           = &lv_font_montserrat_96,
+    .clock_show_time           = true,
+    .clock_date_x              = DISPLAY_WIDTH / 2,  // centered
+    .clock_date_y              = 130,
+    .clock_date_font           = &lv_font_montserrat_18_eu,
+    .clock_show_date           = true,
+    .clock_show_netinfo        = true,
+    .clock_netinfo_x           = DISPLAY_WIDTH / 2,  // centered
+    .clock_netinfo_y           = 155,   // clears the date label's bg plate
+    .clock_netinfo_font        = &lv_font_montserrat_12_eu,
+    .clock_show_strip          = true,
+    .clock_show_mode_indicator = true,
+    .clock_show_event_indicator = true,
+    .clock_mode_indic_x        = 300,
+    .clock_mode_indic_y        = 2,
+    .clock_event_indic_x       = 282,
+    .clock_event_indic_y       = 2,
+    .clock_show_weather        = true,    // label hides itself until data is valid
+    .clock_weather_x           = 0,
+    .clock_weather_y           = 4,       // top row; text is short enough to clear the indicators
+    .clock_weather_w           = 320,     // full width → text centered on screen
+    .clock_weather_font        = &lv_font_montserrat_12_eu,
+
+    
+    .radio_np_x                = 82,     // after the default 64px station icon
+    .radio_np_y                = 64,
+    .radio_np_w                = 228,
+    .radio_show_np             = true,
+    .radio_show_np_title       = true,
+    .radio_title_x             = 82,
+    .radio_title_y             = 89,
+    .radio_title_w             = 228,
+    .radio_show_station_icon   = true,
+    .radio_station_icon_x      = 10,
+    .radio_station_icon_y      = 64,
+    .radio_station_icon_size   = 64,
+    .radio_np_station_font     = &lv_font_montserrat_18_eu,
+    .radio_np_title_font       = &lv_font_montserrat_14_eu,
+    .radio_show_playback_status = true,
+    .radio_state_x             = DISPLAY_WIDTH / 2,  // centered
+    .radio_state_y             = 160,
+    .radio_state_font          = &lv_font_montserrat_14_eu,
+    // One row, spread like the former combined audio-info line.
+    .radio_samplerate_show     = true,
+    .radio_samplerate_x        = 48,
+    .radio_samplerate_y        = 130,
+    .radio_channels_show       = true,
+    .radio_channels_x          = 122,
+    .radio_channels_y          = 130,
+    .radio_bitrate_show        = true,
+    .radio_bitrate_x           = 192,
+    .radio_bitrate_y           = 130,
+    .radio_volume_show         = true,
+    .radio_volume_x            = 272,
+    .radio_volume_y            = 130,
+    .radio_audio_info_font     = &lv_font_montserrat_12_eu,
+    .radio_show_mode_indicator = true,
+    .radio_show_clock          = true,
+    .radio_show_event_indicator = true,
+    .radio_mode_indic_x        = 300,
+    .radio_mode_indic_y        = 2,
+    .radio_clock_widget_x      = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .radio_clock_widget_y      = 0,
+    .radio_clock_font          = &lv_font_montserrat_18_eu,
+    .radio_event_indic_x       = 282,
+    .radio_event_indic_y       = 2,
+    .radio_show_vu             = true,
+    .radio_vu_x                = 1,
+    .radio_vu_y                = 182,
+    .radio_vu_w                = 318,
+    .radio_vu_h                = 58,
+    .radio_needle_l_x          = 15,
+    .radio_needle_l_y          = 80,
+    .radio_needle_l_w          = 140,
+    .radio_needle_l_h          = 90,
+    .radio_needle_r_x          = 165,
+    .radio_needle_r_y          = 80,
+    .radio_needle_r_w          = 140,
+    .radio_needle_r_h          = 90,
+    .radio_stereo_frame        = true,
+    .radio_stereo_peak         = true,
+    .radio_stereo_zones        = true,
+    .radio_stereo_l_x          = 120,
+    .radio_stereo_l_y          = 80,
+    .radio_stereo_l_w          = 30,
+    .radio_stereo_l_h          = 90,
+    .radio_stereo_r_x          = 170,
+    .radio_stereo_r_y          = 80,
+    .radio_stereo_r_w          = 30,
+    .radio_stereo_r_h          = 90,
+    .radio_show_cassette       = true,
+    .radio_show_wheel_left     = true,
+    .radio_show_wheel_right    = true,
+    .radio_cassette_l_x        = 53,
+    .radio_cassette_l_y        = 84,
+    .radio_cassette_l_size     = 72,
+    .radio_cassette_r_x        = 194,
+    .radio_cassette_r_y        = 84,
+    .radio_cassette_r_size     = 72,
+    .radio_show_weather        = false,
+    .radio_weather_x           = 0,
+    .radio_weather_y           = 2,       // top-left row, clear of the centered clock
+    .radio_weather_w           = 120,
+    .radio_weather_font        = &lv_font_montserrat_12_eu,
+    .radio_show_ctrl_overlay   = true,
+    .radio_volslider_show      = false,
+    .radio_volslider_vertical  = false,
+    .radio_volslider_knob_only = false,
+    .radio_volslider_x         = 40,
+    .radio_volslider_y         = 196,
+    .radio_volslider_w         = 240,
+    .radio_volslider_h         = 14,
+    .radio_volslider_vol_max   = 100,
+
+    .sd_title_x                = 10,    // full width minus margins
+    .sd_title_y                = 64,
+    .sd_title_w                = 300,
+    .sd_title_font             = &lv_font_montserrat_14_eu,
+    .sd_folder_x               = 10,    // full width minus margins
+    .sd_folder_y               = 160,
+    .sd_folder_w               = DISPLAY_WIDTH - 20,
+    .sd_folder_font            = &lv_font_montserrat_14_eu,
+    // Info row split; y raised so the "elapsed/total" line fits above the VU.
+    .sd_volume_show            = true,
+    .sd_volume_x               = 70,
+    .sd_volume_y               = 100,
+    .sd_status_show            = true,
+    .sd_status_x               = 210,
+    .sd_status_y               = 100,
+    .sd_info_font              = &lv_font_montserrat_12_eu,
+    .sd_show_folder            = true,
+    .sd_show_time              = true,
+    .sd_time_x                 = DISPLAY_WIDTH / 2,  // centered
+    .sd_time_y                 = 119,
+    .sd_show_bar               = true,
+    .sd_bar_x                  = 20,    // (320 - 280) / 2, under the time row
+    .sd_bar_y                  = 138,
+    .sd_bar_w                  = 280,
+    .sd_bar_h                  = 6,
+    // Off by default (see the 240x296 profile); parked in the free top-left
+    // corner, next to the centered clock.
+    .sd_show_cover             = false,
+    .sd_cover_x                = 10,
+    .sd_cover_y                = 30,
+    .sd_cover_size             = 64,
+    .sd_show_mode_indicator    = true,
+    .sd_show_clock             = true,
+    .sd_show_event_indicator   = true,
+    .sd_mode_indic_x           = 300,
+    .sd_mode_indic_y           = 2,
+    .sd_clock_widget_x         = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .sd_clock_widget_y         = 0,
+    .sd_clock_font             = &lv_font_montserrat_18_eu,
+    .sd_event_indic_x          = 282,
+    .sd_event_indic_y          = 2,
+    .sd_show_vu                = true,
+    .sd_vu_x                   = 1,
+    .sd_vu_y                   = 182,
+    .sd_vu_w                   = 318,
+    .sd_vu_h                   = 58,
+    .sd_needle_l_x             = 15,
+    .sd_needle_l_y             = 80,
+    .sd_needle_l_w             = 140,
+    .sd_needle_l_h             = 90,
+    .sd_needle_r_x             = 165,
+    .sd_needle_r_y             = 80,
+    .sd_needle_r_w             = 140,
+    .sd_needle_r_h             = 90,
+    .sd_stereo_frame           = true,
+    .sd_stereo_peak            = true,
+    .sd_stereo_zones           = true,
+    .sd_stereo_l_x             = 120,
+    .sd_stereo_l_y             = 80,
+    .sd_stereo_l_w             = 30,
+    .sd_stereo_l_h             = 90,
+    .sd_stereo_r_x             = 170,
+    .sd_stereo_r_y             = 80,
+    .sd_stereo_r_w             = 30,
+    .sd_stereo_r_h             = 90,
+    .sd_show_cassette          = true,
+    .sd_show_wheel_left        = true,
+    .sd_show_wheel_right       = true,
+    .sd_cassette_l_x           = 53,
+    .sd_cassette_l_y           = 84,
+    .sd_cassette_l_size        = 72,
+    .sd_cassette_r_x           = 194,
+    .sd_cassette_r_y           = 84,
+    .sd_cassette_r_size        = 72,
+    .sd_show_weather           = false,
+    .sd_weather_x              = 0,
+    .sd_weather_y              = 2,       // top-left row, clear of the centered clock
+    .sd_weather_w              = 120,
+    .sd_weather_font           = &lv_font_montserrat_12_eu,
+    .sd_show_ctrl_overlay      = true,
+    .sd_volslider_show         = false,
+    .sd_volslider_vertical     = false,
+    .sd_volslider_knob_only    = false,
+    .sd_volslider_x            = 40,
+    .sd_volslider_y            = 196,
+    .sd_volslider_w            = 240,
+    .sd_volslider_h            = 14,
+    .sd_volslider_vol_max      = 100,
+    .bt_show_ctrl_overlay      = true,
+    .bt_volslider_show         = false,
+    .bt_volslider_vertical     = false,
+    .bt_volslider_knob_only    = false,
+    .bt_volslider_x            = 40,
+    .bt_volslider_y            = 196,
+    .bt_volslider_w            = 240,
+    .bt_volslider_h            = 14,
+    .bt_volslider_vol_max      = 100,
+
+    .playlist_header_h         = 26,
+    .playlist_item_h           = 28,
+    .playlist_item_pad         = 2,
+    .playlist_row_pad_left     = 8,
+    .playlist_label_bg_opa     = 100,
+    .playlist_header_font      = &lv_font_montserrat_14_eu,
+    .playlist_row_font         = &lv_font_montserrat_12_eu,
+
+    .browser_header_h          = 26,
+    .browser_item_h            = 28,
+    .browser_item_pad          = 2,
+    .browser_row_pad_left      = 8,
+    .browser_label_bg_opa      = 100,
+    .browser_header_font       = &lv_font_montserrat_14_eu,
+    .browser_row_font          = &lv_font_montserrat_12_eu,
+
+    // 320x240 — small BT icon top, brand + status, then track metadata
+    .bt_circle_x               = (DISPLAY_WIDTH - 60) / 2,  // centered on screen
+    .bt_circle_y               = 25,
+    .bt_circle_w               = 60,
+    .bt_circle_h               = 60,
+    .bt_icon_font              = &lv_font_montserrat_18_eu,
+    .bt_show_circle            = true,
+    .bt_brand_x                = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_brand_y                = 90,
+    .bt_brand_font             = &lv_font_montserrat_14_eu,
+    .bt_status_x               = DISPLAY_WIDTH / 2,  // centered
+    .bt_status_y               = 112,
+    .bt_status_font            = &lv_font_montserrat_12_eu,
+    .bt_vol_x                  = DISPLAY_WIDTH / 2,  // centered, one line below time
+    .bt_vol_y                  = 218,
+    .bt_vol_label_font         = &lv_font_montserrat_12_eu,
+    .bt_show_mode_indicator    = true,
+    .bt_show_clock             = true,
+    .bt_mode_indic_x           = 300,
+    .bt_mode_indic_y           = 8,
+    .bt_clock_widget_x         = 135,
+    .bt_clock_widget_y         = 0,
+    .bt_clock_font             = &lv_font_montserrat_18_eu,
+    .bt_title_x                = 10,
+    .bt_title_y                = 140,
+    .bt_title_w                = 300,
+    .bt_title_font             = &lv_font_montserrat_14_eu,
+    .bt_artist_x               = 10,
+    .bt_artist_y               = 165,
+    .bt_artist_w               = 300,
+    .bt_artist_font            = &lv_font_montserrat_12_eu,
+    .bt_time_x                 = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_time_y                 = 200,
+    .bt_time_font              = &lv_font_montserrat_14_eu,
+
+    .settings_title_y          = 6,
+    .settings_row_w            = 288,
+    .settings_row_h            = 52,
+    .settings_row_pad          = 8,
+    .settings_title_in_list    = false,
+    .settings_row1_y           = 32,
+    .settings_row2_y           = 92,    // skok 60 → gap 8 nad row_h 52
+    .settings_row3_y           = 152,   // = row1 + 2*skok
+    .settings_slider_w         = 170,
+    .settings_slider_h         = 6,
+    .settings_show_slider      = true,
+    .settings_hint_y           = -6,
+    .settings_title_font       = &lv_font_montserrat_14_eu,
+    .settings_row_font         = &lv_font_montserrat_14_eu,
+    .settings_value_font       = &lv_font_montserrat_14_eu,
+    .settings_hint_font        = &lv_font_montserrat_12_eu,
+
+    .eq_title_y                = 6,
+    .eq_info_y                 = 30,
+    .eq_band_area_y            = 62,
+    .eq_slider_h               = 132,
+    .eq_slider_w               = 8,
+    .eq_group_w                = 260,  // span: 9 steps of 28 + the last slider (8)
+    .eq_group_x                = 30,   // (320 - 260) / 2
+    .eq_group_y                = 62,
+    .eq_hint_y                 = -6,
+    .eq_title_font             = &lv_font_montserrat_18_eu,
+    .eq_info_font              = &lv_font_montserrat_14_eu,
+    .eq_freq_font              = &lv_font_montserrat_12_eu,
+    .eq_hint_font              = &lv_font_montserrat_12_eu,
+
+    .events_header_h           = 26,
+    .events_item_h             = 44,
+    .events_item_pad           = 3,
+    .events_row_w              = 314,
+    .events_row_label_w        = 298,
+    .events_row_pad_hor        = 8,
+    .events_header_font        = &lv_font_montserrat_14_eu,
+    .events_title_font         = &lv_font_montserrat_14_eu,
+    .events_meta_font          = &lv_font_montserrat_12_eu,
+
+    .wifi_title_y              = 14,
+    .wifi_card_w               = 290,
+    .wifi_card_h               = 136,
+    .wifi_card_y               = 6,
+    .wifi_card_pad_hor         = 16,
+    .wifi_card_pad_ver         = 12,
+    .wifi_row2_y               = 36,
+    .wifi_row3_y               = 72,
+    .wifi_hint_y               = -10,
+    .wifi_title_font           = &lv_font_montserrat_18_eu,
+    .wifi_key_font             = &lv_font_montserrat_12_eu,
+    .wifi_value_font           = &lv_font_montserrat_18_eu,
+    .wifi_hint_font            = &lv_font_montserrat_12_eu,
+};
+
+#elif defined(UI_PROFILE_480x320)
+
+// Scaled from the 320x240 layout: ~x1.5 in X, ~x1.33 in Y.
+// First-cut coordinates — fine-tune on the physical ST7796U panel.
+static const ui_profile_t k_defaults = {
+    .clock_label_bg_opa       = 50,
+    .radio_label_bg_opa       = 50,
+    .sd_label_bg_opa          = 50,
+    .bt_label_bg_opa          = 50,
+    .clock_strip_x             = 0,
+    .clock_strip_y             = 238,
+    .clock_strip_w             = 480,
+    .clock_strip_h             = 82,
+    .clock_strip_bg_opa        = 100,
+    .clock_strip_station_w     = 444,
+    .clock_strip_station_x     = 0,
+    .clock_strip_station_y     = 10,
+    .clock_strip_title_w       = 444,
+    .clock_strip_title_x       = 0,
+    .clock_strip_title_y       = 42,
+    .clock_strip_station_font  = &lv_font_montserrat_18_eu,
+    .clock_strip_title_font    = &lv_font_montserrat_14_eu,
+    .clock_time_x              = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .clock_time_y              = 40,
+    .clock_time_font           = &lv_font_montserrat_120,
+    .clock_show_time           = true,
+    .clock_date_x              = DISPLAY_WIDTH / 2,  // centered
+    .clock_date_y              = 175,
+    .clock_date_font           = &lv_font_montserrat_18_eu,
+    .clock_show_date           = true,
+    .clock_show_netinfo        = true,
+    .clock_netinfo_x           = DISPLAY_WIDTH / 2,  // centered
+    .clock_netinfo_y           = 202,
+    .clock_netinfo_font        = &lv_font_montserrat_14_eu,
+    .clock_show_strip          = true,
+    .clock_show_mode_indicator = true,
+    .clock_show_event_indicator = true,
+    .clock_mode_indic_x        = 452,
+    .clock_mode_indic_y        = 4,
+    .clock_event_indic_x       = 424,
+    .clock_event_indic_y       = 4,
+    .clock_show_weather        = true,    // label hides itself until data is valid
+    .clock_weather_x           = 0,
+    .clock_weather_y           = 216,     // below netinfo, above the strip
+    .clock_weather_w           = 480,
+    .clock_weather_font        = &lv_font_montserrat_14_eu,
+
+
+    .radio_np_x                = 77,     // after the default 64px station icon
+    .radio_np_y                = 85,
+    .radio_np_w                = 393,
+    .radio_show_np             = true,
+    .radio_show_np_title       = true,
+    .radio_title_x             = 77,
+    .radio_title_y             = 110,
+    .radio_title_w             = 393,
+    .radio_show_station_icon   = true,
+    .radio_station_icon_x      = 5,
+    .radio_station_icon_y      = 85,
+    .radio_station_icon_size   = 64,
+    .radio_np_station_font     = &lv_font_montserrat_18_eu,
+    .radio_np_title_font       = &lv_font_montserrat_14_eu,
+    .radio_show_playback_status = true,
+    .radio_state_x             = DISPLAY_WIDTH / 2,  // centered
+    .radio_state_y             = 226,
+    .radio_state_font          = &lv_font_montserrat_14_eu,
+    // One row, spread like the former combined audio-info line.
+    .radio_samplerate_show     = true,
+    .radio_samplerate_x        = 72,
+    .radio_samplerate_y        = 174,
+    .radio_channels_show       = true,
+    .radio_channels_x          = 182,
+    .radio_channels_y          = 174,
+    .radio_bitrate_show        = true,
+    .radio_bitrate_x           = 288,
+    .radio_bitrate_y           = 174,
+    .radio_volume_show         = true,
+    .radio_volume_x            = 408,
+    .radio_volume_y            = 174,
+    .radio_audio_info_font     = &lv_font_montserrat_14_eu,
+    .radio_show_mode_indicator = true,
+    .radio_show_clock          = true,
+    .radio_show_event_indicator = true,
+    .radio_mode_indic_x        = 452,
+    .radio_mode_indic_y        = 4,
+    .radio_clock_widget_x      = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .radio_clock_widget_y      = 0,
+    .radio_clock_font          = &lv_font_montserrat_48_eu,
+    .radio_event_indic_x       = 424,
+    .radio_event_indic_y       = 4,
+    .radio_show_vu             = true,
+    .radio_vu_x                = 1,
+    .radio_vu_y                = 248,
+    .radio_vu_w                = 478,
+    .radio_vu_h                = 72,
+    .radio_needle_l_x          = 30,
+    .radio_needle_l_y          = 100,
+    .radio_needle_l_w          = 200,
+    .radio_needle_l_h          = 130,
+    .radio_needle_r_x          = 250,
+    .radio_needle_r_y          = 100,
+    .radio_needle_r_w          = 200,
+    .radio_needle_r_h          = 130,
+    .radio_stereo_frame        = true,
+    .radio_stereo_peak         = true,
+    .radio_stereo_zones        = true,
+    .radio_stereo_l_x          = 190,
+    .radio_stereo_l_y          = 100,
+    .radio_stereo_l_w          = 40,
+    .radio_stereo_l_h          = 130,
+    .radio_stereo_r_x          = 250,
+    .radio_stereo_r_y          = 100,
+    .radio_stereo_r_w          = 40,
+    .radio_stereo_r_h          = 130,
+    .radio_show_cassette       = true,
+    .radio_show_wheel_left     = true,
+    .radio_show_wheel_right    = true,
+    .radio_cassette_l_x        = 85,
+    .radio_cassette_l_y        = 111,
+    .radio_cassette_l_size     = 98,
+    .radio_cassette_r_x        = 296,
+    .radio_cassette_r_y        = 111,
+    .radio_cassette_r_size     = 98,
+    .radio_show_weather        = false,
+    .radio_weather_x           = 0,
+    .radio_weather_y           = 4,       // top-left row, clear of the centered clock
+    .radio_weather_w           = 160,
+    .radio_weather_font        = &lv_font_montserrat_14_eu,
+    .radio_show_ctrl_overlay   = true,
+    .radio_volslider_show      = false,
+    .radio_volslider_vertical  = false,
+    .radio_volslider_knob_only = false,
+    .radio_volslider_x         = 90,
+    .radio_volslider_y         = 252,
+    .radio_volslider_w         = 300,
+    .radio_volslider_h         = 18,
+    .radio_volslider_vol_max   = 100,
+
+    .sd_title_x                = 10,    // full width minus margins
+    .sd_title_y                = 85,
+    .sd_title_w                = 460,
+    .sd_title_font             = &lv_font_montserrat_14_eu,
+    .sd_folder_x               = 10,    // full width minus margins
+    .sd_folder_y               = 226,
+    .sd_folder_w               = DISPLAY_WIDTH - 20,
+    .sd_folder_font            = &lv_font_montserrat_14_eu,
+    // Info row split; y raised so the "elapsed/total" line fits above the VU.
+    .sd_volume_show            = true,
+    .sd_volume_x               = 100,
+    .sd_volume_y               = 140,
+    .sd_status_show            = true,
+    .sd_status_x               = 310,
+    .sd_status_y               = 140,
+    .sd_info_font              = &lv_font_montserrat_14_eu,
+    .sd_show_folder            = true,
+    .sd_show_time              = true,
+    .sd_time_x                 = DISPLAY_WIDTH / 2,  // centered
+    .sd_time_y                 = 161,
+    .sd_show_bar               = true,
+    .sd_bar_x                  = 30,    // (480 - 420) / 2, under the time row
+    .sd_bar_y                  = 182,
+    .sd_bar_w                  = 420,
+    .sd_bar_h                  = 8,
+    // Off by default (see the 240x296 profile); parked in the free top-left
+    // corner, next to the centered clock.
+    .sd_show_cover             = false,
+    .sd_cover_x                = 10,
+    .sd_cover_y                = 15,
+    .sd_cover_size             = 64,
+    .sd_show_mode_indicator    = true,
+    .sd_show_clock             = true,
+    .sd_show_event_indicator   = true,
+    .sd_mode_indic_x           = 452,
+    .sd_mode_indic_y           = 4,
+    .sd_clock_widget_x         = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .sd_clock_widget_y         = 0,
+    .sd_clock_font             = &lv_font_montserrat_48_eu,
+    .sd_event_indic_x          = 424,
+    .sd_event_indic_y          = 4,
+    .sd_show_vu                = true,
+    .sd_vu_x                   = 1,
+    .sd_vu_y                   = 248,
+    .sd_vu_w                   = 478,
+    .sd_vu_h                   = 72,
+    .sd_needle_l_x             = 30,
+    .sd_needle_l_y             = 100,
+    .sd_needle_l_w             = 200,
+    .sd_needle_l_h             = 130,
+    .sd_needle_r_x             = 250,
+    .sd_needle_r_y             = 100,
+    .sd_needle_r_w             = 200,
+    .sd_needle_r_h             = 130,
+    .sd_stereo_frame           = true,
+    .sd_stereo_peak            = true,
+    .sd_stereo_zones           = true,
+    .sd_stereo_l_x             = 190,
+    .sd_stereo_l_y             = 100,
+    .sd_stereo_l_w             = 40,
+    .sd_stereo_l_h             = 130,
+    .sd_stereo_r_x             = 250,
+    .sd_stereo_r_y             = 100,
+    .sd_stereo_r_w             = 40,
+    .sd_stereo_r_h             = 130,
+    .sd_show_cassette          = true,
+    .sd_show_wheel_left        = true,
+    .sd_show_wheel_right       = true,
+    .sd_cassette_l_x           = 85,
+    .sd_cassette_l_y           = 111,
+    .sd_cassette_l_size        = 98,
+    .sd_cassette_r_x           = 296,
+    .sd_cassette_r_y           = 111,
+    .sd_cassette_r_size        = 98,
+    .sd_show_weather           = false,
+    .sd_weather_x              = 0,
+    .sd_weather_y              = 4,       // top-left row, clear of the centered clock
+    .sd_weather_w              = 160,
+    .sd_weather_font           = &lv_font_montserrat_14_eu,
+    .sd_show_ctrl_overlay      = true,
+    .sd_volslider_show         = false,
+    .sd_volslider_vertical     = false,
+    .sd_volslider_knob_only    = false,
+    .sd_volslider_x            = 90,
+    .sd_volslider_y            = 252,
+    .sd_volslider_w            = 300,
+    .sd_volslider_h            = 18,
+    .sd_volslider_vol_max      = 100,
+    .bt_show_ctrl_overlay      = true,
+    .bt_volslider_show         = false,
+    .bt_volslider_vertical     = false,
+    .bt_volslider_knob_only    = false,
+    .bt_volslider_x            = 90,
+    .bt_volslider_y            = 252,
+    .bt_volslider_w            = 300,
+    .bt_volslider_h            = 18,
+    .bt_volslider_vol_max      = 100,
+
+    .playlist_header_h         = 34,
+    .playlist_item_h           = 38,
+    .playlist_item_pad         = 3,
+    .playlist_row_pad_left     = 12,
+    .playlist_label_bg_opa     = 100,
+    .playlist_header_font      = &lv_font_montserrat_18_eu,
+    .playlist_row_font         = &lv_font_montserrat_14_eu,
+
+    .browser_header_h          = 34,
+    .browser_item_h            = 38,
+    .browser_item_pad          = 3,
+    .browser_row_pad_left      = 12,
+    .browser_label_bg_opa      = 100,
+    .browser_header_font       = &lv_font_montserrat_18_eu,
+    .browser_row_font          = &lv_font_montserrat_14_eu,
+
+    // 480x320 — small BT icon top, brand + status, then track metadata
+    .bt_circle_x               = (DISPLAY_WIDTH - 84) / 2,  // centered on screen
+    .bt_circle_y               = 33,
+    .bt_circle_w               = 84,
+    .bt_circle_h               = 84,
+    .bt_icon_font              = &lv_font_montserrat_18_eu,
+    .bt_show_circle            = true,
+    .bt_brand_x                = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_brand_y                = 120,
+    .bt_brand_font             = &lv_font_montserrat_18_eu,
+    .bt_status_x               = DISPLAY_WIDTH / 2,  // centered
+    .bt_status_y               = 150,
+    .bt_status_font            = &lv_font_montserrat_14_eu,
+    .bt_vol_x                  = DISPLAY_WIDTH / 2,  // centered, one line below time
+    .bt_vol_y                  = 290,
+    .bt_vol_label_font         = &lv_font_montserrat_14_eu,
+    .bt_show_mode_indicator    = true,
+    .bt_show_clock             = true,
+    .bt_mode_indic_x           = 452,
+    .bt_mode_indic_y           = 4,
+    .bt_clock_widget_x         = 220,
+    .bt_clock_widget_y         = 0,
+    .bt_clock_font             = &lv_font_montserrat_18_eu,
+    .bt_title_x                = 16,
+    .bt_title_y                = 187,
+    .bt_title_w                = 448,
+    .bt_title_font             = &lv_font_montserrat_18_eu,
+    .bt_artist_x               = 16,
+    .bt_artist_y               = 220,
+    .bt_artist_w               = 448,
+    .bt_artist_font            = &lv_font_montserrat_14_eu,
+    .bt_time_x                 = DISPLAY_WIDTH / 2,  // centered (UI_ALIGN_CENTER)
+    .bt_time_y                 = 268,
+    .bt_time_font              = &lv_font_montserrat_18_eu,
+
+    .settings_title_y          = 8,
+    .settings_row_w            = 432,
+    .settings_row_h            = 70,
+    .settings_row_pad          = 8,
+    .settings_title_in_list    = false,
+    .settings_row1_y           = 42,
+    .settings_row2_y           = 122,   // skok 80 → gap 10 nad row_h 70
+    .settings_row3_y           = 202,   // = row1 + 2*skok
+    .settings_slider_w         = 255,
+    .settings_slider_h         = 8,
+    .settings_show_slider      = true,
+    .settings_hint_y           = -8,
+    .settings_title_font       = &lv_font_montserrat_18_eu,
+    .settings_row_font         = &lv_font_montserrat_18_eu,
+    .settings_value_font       = &lv_font_montserrat_18_eu,
+    .settings_hint_font        = &lv_font_montserrat_14_eu,
+
+    .eq_title_y                = 8,
+    .eq_info_y                 = 40,
+    .eq_band_area_y            = 82,
+    .eq_slider_h               = 176,
+    .eq_slider_w               = 12,
+    .eq_group_w                = 390,  // span: 9 steps of 42 + the last slider (12)
+    .eq_group_x                = 45,   // (480 - 390) / 2
+    .eq_group_y                = 82,
+    .eq_hint_y                 = -8,
+    .eq_title_font             = &lv_font_montserrat_18_eu,
+    .eq_info_font              = &lv_font_montserrat_18_eu,
+    .eq_freq_font              = &lv_font_montserrat_14_eu,
+    .eq_hint_font              = &lv_font_montserrat_14_eu,
+
+    .events_header_h           = 34,
+    .events_item_h             = 58,
+    .events_item_pad           = 4,
+    .events_row_w              = 470,
+    .events_row_label_w        = 446,
+    .events_row_pad_hor        = 12,
+    .events_header_font        = &lv_font_montserrat_18_eu,
+    .events_title_font         = &lv_font_montserrat_18_eu,
+    .events_meta_font          = &lv_font_montserrat_14_eu,
+
+    .wifi_title_y              = 18,
+    .wifi_card_w               = 434,
+    .wifi_card_h               = 180,
+    .wifi_card_y               = 8,
+    .wifi_card_pad_hor         = 24,
+    .wifi_card_pad_ver         = 16,
+    .wifi_row2_y               = 48,
+    .wifi_row3_y               = 96,
+    .wifi_hint_y               = -14,
+    .wifi_title_font           = &lv_font_montserrat_18_eu,
+    .wifi_key_font             = &lv_font_montserrat_14_eu,
+    .wifi_value_font           = &lv_font_montserrat_18_eu,
+    .wifi_hint_font            = &lv_font_montserrat_14_eu,
+};
+
+#else
+    #error "Unknown UI_PROFILE"
+#endif
+
+// Mutable runtime — copy of defaults at startup, overwritten from JSON / API.
+// Can't initialize as a copy of `k_defaults` (that's runtime-const, not
+// compile-time-const), so we zero-init and copy in ui_profile_load_from_file().
+// To make pre-load access (before JSON load) still see defaults, we also copy
+// in ui_profile_get() on first call.
+static ui_profile_t s_runtime;
+static bool         s_initialized = false;
+
+static void ensure_hotspot_defaults(ui_touch_hotspot_t *hotspots)
+{
+    for (int i = 0; i < UI_TOUCH_HOTSPOT_COUNT; ++i) {
+        bool missing_geometry = hotspots[i].w <= 0 || hotspots[i].h <= 0;
+        if (hotspots[i].w <= 0) hotspots[i].w = 48;
+        if (hotspots[i].h <= 0) hotspots[i].h = 36;
+        if (missing_geometry) {
+            hotspots[i].radius = 20;
+            hotspots[i].action = i % 6;
+        } else {
+            hotspots[i].radius = LV_CLAMP(0, hotspots[i].radius, 100);
+            hotspots[i].action = LV_CLAMP(0, hotspots[i].action,
+                                          CONTROL_ACTION_OPEN_EQUALIZER);
+        }
+    }
+}
+
+static void ensure_all_hotspot_defaults(ui_profile_t *p)
+{
+    ensure_hotspot_defaults(p->radio_touch_hotspots);
+    ensure_hotspot_defaults(p->sd_touch_hotspots);
+    ensure_hotspot_defaults(p->bt_touch_hotspots);
+}
+
+static void ensure_initialized(void)
+{
+    if (!s_initialized) {
+        s_runtime = k_defaults;
+        ensure_all_hotspot_defaults(&s_runtime);
+        s_initialized = true;
+    }
+}
+
+const ui_profile_t *ui_profile_get(void)
+{
+    ensure_initialized();
+    return &s_runtime;
+}
+
+const ui_profile_t *ui_profile_defaults(void) { return &k_defaults; }
+
+void ui_profile_set(const ui_profile_t *src)
+{
+    if (!src) return;
+    ensure_initialized();
+    s_runtime = *src;
+}
+
+void ui_profile_reset(void)
+{
+    s_runtime = k_defaults;
+    ensure_all_hotspot_defaults(&s_runtime);
+    s_initialized = true;
+}
+
+// ── JSON helpers ────────────────────────────────────────────────────────────
+
+static void load_i16(const cJSON *obj, const char *key, int16_t *dst)
+{
+    const cJSON *it = cJSON_GetObjectItem(obj, key);
+    if (cJSON_IsNumber(it)) *dst = (int16_t)it->valueint;
+}
+
+static void load_bool(const cJSON *obj, const char *key, bool *dst)
+{
+    const cJSON *it = cJSON_GetObjectItem(obj, key);
+    if (cJSON_IsBool(it)) *dst = cJSON_IsTrue(it);
+}
+
+// Colour override stored as a 0xRRGGBB integer; 0 means "inherit theme".
+static void load_u32(const cJSON *obj, const char *key, uint32_t *dst)
+{
+    const cJSON *it = cJSON_GetObjectItem(obj, key);
+    if (cJSON_IsNumber(it)) *dst = (uint32_t)it->valuedouble;
+}
+
+static void load_font(const cJSON *obj, const char *key, const lv_font_t **dst)
+{
+    const cJSON *it = cJSON_GetObjectItem(obj, key);
+    if (!cJSON_IsString(it)) return;
+    const lv_font_t *f = ui_font_by_id(it->valuestring);
+    if (f) *dst = f;
+}
+
+static void load_str(const cJSON *obj, const char *key, char *dst, size_t cap)
+{
+    const cJSON *it = cJSON_GetObjectItem(obj, key);
+    if (!cJSON_IsString(it)) return;
+    strncpy(dst, it->valuestring, cap - 1);
+    dst[cap - 1] = '\0';
+}
+
+static void add_i16(cJSON *obj, const char *key, int16_t v)
+{
+    cJSON_AddNumberToObject(obj, key, v);
+}
+
+static void add_bool(cJSON *obj, const char *key, bool v)
+{
+    cJSON_AddBoolToObject(obj, key, v);
+}
+
+static void add_u32(cJSON *obj, const char *key, uint32_t v)
+{
+    cJSON_AddNumberToObject(obj, key, (double)v);
+}
+
+static void add_font(cJSON *obj, const char *key, const lv_font_t *f)
+{
+    cJSON_AddStringToObject(obj, key, ui_font_id(f));
+}
+
+static void add_str(cJSON *obj, const char *key, const char *v)
+{
+    cJSON_AddStringToObject(obj, key, v);
+}
+
+static void clamp_reel_size(int16_t *size)
+{
+    int16_t max_size = DISPLAY_WIDTH < DISPLAY_HEIGHT ? DISPLAY_WIDTH : DISPLAY_HEIGHT;
+    if (*size < 16) *size = 16;
+    if (*size > max_size) *size = max_size;
+}
+
+static void load_hotspots(const cJSON *obj, const char *prefix,
+                          ui_touch_hotspot_t *hotspots)
+{
+    char key[48];
+    for (int i = 0; i < UI_TOUCH_HOTSPOT_COUNT; ++i) {
+        ui_touch_hotspot_t *h = &hotspots[i];
+        int slot = i + 1;
+        snprintf(key, sizeof(key), "%s_hotspot_%d_enabled", prefix, slot);
+        load_bool(obj, key, &h->enabled);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_x", prefix, slot);
+        load_i16(obj, key, &h->x);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_y", prefix, slot);
+        load_i16(obj, key, &h->y);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_w", prefix, slot);
+        load_i16(obj, key, &h->w);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_h", prefix, slot);
+        load_i16(obj, key, &h->h);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_action", prefix, slot);
+        load_i16(obj, key, &h->action);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_radius", prefix, slot);
+        load_i16(obj, key, &h->radius);
+    }
+    ensure_hotspot_defaults(hotspots);
+}
+
+static void dump_hotspots(cJSON *obj, const char *prefix,
+                          const ui_touch_hotspot_t *hotspots)
+{
+    char key[48];
+    for (int i = 0; i < UI_TOUCH_HOTSPOT_COUNT; ++i) {
+        const ui_touch_hotspot_t *h = &hotspots[i];
+        int slot = i + 1;
+        snprintf(key, sizeof(key), "%s_hotspot_%d_enabled", prefix, slot);
+        add_bool(obj, key, h->enabled);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_x", prefix, slot);
+        add_i16(obj, key, h->x);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_y", prefix, slot);
+        add_i16(obj, key, h->y);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_w", prefix, slot);
+        add_i16(obj, key, h->w);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_h", prefix, slot);
+        add_i16(obj, key, h->h);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_action", prefix, slot);
+        add_i16(obj, key, h->action);
+        snprintf(key, sizeof(key), "%s_hotspot_%d_radius", prefix, slot);
+        add_i16(obj, key, h->radius);
+    }
+}
+
+// ── per-section load ────────────────────────────────────────────────────────
+
+static void load_clock(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_i16 (obj, "clock_strip_x",              &p->clock_strip_x);
+    load_i16 (obj, "clock_strip_y",              &p->clock_strip_y);
+    load_i16 (obj, "clock_strip_w",              &p->clock_strip_w);
+    load_i16 (obj, "clock_strip_h",              &p->clock_strip_h);
+    load_i16 (obj, "clock_strip_bg_opa",         &p->clock_strip_bg_opa);
+    if (p->clock_strip_bg_opa < 0) p->clock_strip_bg_opa = 0;
+    if (p->clock_strip_bg_opa > 100) p->clock_strip_bg_opa = 100;
+    // Legacy shared width: seed both labels, per-label keys below override.
+    load_i16 (obj, "clock_strip_label_w",        &p->clock_strip_station_w);
+    load_i16 (obj, "clock_strip_label_w",        &p->clock_strip_title_w);
+    load_i16 (obj, "clock_strip_station_w",      &p->clock_strip_station_w);
+    load_i16 (obj, "clock_strip_station_x",      &p->clock_strip_station_x);
+    load_i16 (obj, "clock_strip_station_y",      &p->clock_strip_station_y);
+    load_i16 (obj, "clock_strip_title_w",        &p->clock_strip_title_w);
+    load_i16 (obj, "clock_strip_title_x",        &p->clock_strip_title_x);
+    load_i16 (obj, "clock_strip_title_y",        &p->clock_strip_title_y);
+    load_font(obj, "clock_strip_station_font",   &p->clock_strip_station_font);
+    load_font(obj, "clock_strip_title_font",     &p->clock_strip_title_font);
+    load_u32 (obj, "clock_strip_station_color",  &p->clock_strip_station_color);
+    load_u32 (obj, "clock_strip_title_color",    &p->clock_strip_title_color);
+    load_i16 (obj, "clock_time_x",               &p->clock_time_x);
+    load_i16 (obj, "clock_time_y",               &p->clock_time_y);
+    load_font(obj, "clock_time_font",            &p->clock_time_font);
+    load_bool(obj, "clock_show_time",            &p->clock_show_time);
+    load_u32 (obj, "clock_time_color",           &p->clock_time_color);
+    load_i16 (obj, "clock_date_x",               &p->clock_date_x);
+    load_i16 (obj, "clock_date_y",               &p->clock_date_y);
+    load_font(obj, "clock_date_font",            &p->clock_date_font);
+    load_bool(obj, "clock_show_date",            &p->clock_show_date);
+    load_u32 (obj, "clock_date_color",           &p->clock_date_color);
+    load_bool(obj, "clock_show_netinfo",         &p->clock_show_netinfo);
+    load_i16 (obj, "clock_netinfo_x",            &p->clock_netinfo_x);
+    load_i16 (obj, "clock_netinfo_y",            &p->clock_netinfo_y);
+    load_font(obj, "clock_netinfo_font",         &p->clock_netinfo_font);
+    load_u32 (obj, "clock_netinfo_color",        &p->clock_netinfo_color);
+    load_bool(obj, "clock_show_strip",           &p->clock_show_strip);
+    load_bool(obj, "clock_show_mode_indicator",  &p->clock_show_mode_indicator);
+    load_bool(obj, "clock_show_event_indicator", &p->clock_show_event_indicator);
+    load_i16 (obj, "clock_mode_indic_x",         &p->clock_mode_indic_x);
+    load_i16 (obj, "clock_mode_indic_y",         &p->clock_mode_indic_y);
+    load_i16 (obj, "clock_event_indic_x",        &p->clock_event_indic_x);
+    load_i16 (obj, "clock_event_indic_y",        &p->clock_event_indic_y);
+    load_bool(obj, "clock_show_calendar",        &p->clock_show_calendar);
+    load_i16 (obj, "clock_calendar_x",           &p->clock_calendar_x);
+    load_i16 (obj, "clock_calendar_y",           &p->clock_calendar_y);
+    load_i16 (obj, "clock_calendar_w",           &p->clock_calendar_w);
+    load_font(obj, "clock_calendar_font",        &p->clock_calendar_font);
+    load_bool(obj, "clock_show_weather",         &p->clock_show_weather);
+    load_i16 (obj, "clock_weather_x",            &p->clock_weather_x);
+    load_i16 (obj, "clock_weather_y",            &p->clock_weather_y);
+    load_i16 (obj, "clock_weather_w",            &p->clock_weather_w);
+    load_font(obj, "clock_weather_font",         &p->clock_weather_font);
+    load_i16 (obj, "clock_label_bg_opa",         &p->clock_label_bg_opa);
+    p->clock_label_bg_opa = LV_CLAMP(0, p->clock_label_bg_opa, 100);
+    load_str (obj, "clock_wallpaper",            p->clock_wallpaper, sizeof(p->clock_wallpaper));
+}
+
+static void load_bt(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_i16 (obj, "bt_circle_x",            &p->bt_circle_x);
+    load_i16 (obj, "bt_circle_y",            &p->bt_circle_y);
+    load_i16 (obj, "bt_circle_w",            &p->bt_circle_w);
+    load_i16 (obj, "bt_circle_h",            &p->bt_circle_h);
+    load_font(obj, "bt_icon_font",           &p->bt_icon_font);
+    load_bool(obj, "bt_show_circle",         &p->bt_show_circle);
+    load_i16 (obj, "bt_brand_x",             &p->bt_brand_x);
+    load_i16 (obj, "bt_brand_y",             &p->bt_brand_y);
+    load_font(obj, "bt_brand_font",          &p->bt_brand_font);
+    load_u32 (obj, "bt_brand_color",         &p->bt_brand_color);
+    load_i16 (obj, "bt_status_x",            &p->bt_status_x);
+    load_i16 (obj, "bt_status_y",            &p->bt_status_y);
+    load_font(obj, "bt_status_font",         &p->bt_status_font);
+    load_u32 (obj, "bt_status_color",        &p->bt_status_color);
+    load_i16 (obj, "bt_vol_x",               &p->bt_vol_x);
+    load_i16 (obj, "bt_vol_y",               &p->bt_vol_y);
+    load_font(obj, "bt_vol_label_font",      &p->bt_vol_label_font);
+    load_u32 (obj, "bt_vol_color",           &p->bt_vol_color);
+    load_bool(obj, "bt_show_mode_indicator", &p->bt_show_mode_indicator);
+    load_bool(obj, "bt_show_clock",          &p->bt_show_clock);
+    load_i16 (obj, "bt_mode_indic_x",        &p->bt_mode_indic_x);
+    load_i16 (obj, "bt_mode_indic_y",        &p->bt_mode_indic_y);
+    load_i16 (obj, "bt_clock_widget_x",      &p->bt_clock_widget_x);
+    load_i16 (obj, "bt_clock_widget_y",      &p->bt_clock_widget_y);
+    load_font(obj, "bt_clock_font",          &p->bt_clock_font);
+    load_i16 (obj, "bt_title_x",             &p->bt_title_x);
+    load_i16 (obj, "bt_title_y",             &p->bt_title_y);
+    load_i16 (obj, "bt_title_w",             &p->bt_title_w);
+    load_font(obj, "bt_title_font",          &p->bt_title_font);
+    load_u32 (obj, "bt_title_color",         &p->bt_title_color);
+    load_i16 (obj, "bt_artist_x",            &p->bt_artist_x);
+    load_i16 (obj, "bt_artist_y",            &p->bt_artist_y);
+    load_i16 (obj, "bt_artist_w",            &p->bt_artist_w);
+    load_font(obj, "bt_artist_font",         &p->bt_artist_font);
+    load_u32 (obj, "bt_artist_color",        &p->bt_artist_color);
+    load_i16 (obj, "bt_time_x",              &p->bt_time_x);
+    load_i16 (obj, "bt_time_y",              &p->bt_time_y);
+    load_font(obj, "bt_time_font",           &p->bt_time_font);
+    load_u32 (obj, "bt_time_color",          &p->bt_time_color);
+    load_i16 (obj, "bt_label_bg_opa",        &p->bt_label_bg_opa);
+    p->bt_label_bg_opa = LV_CLAMP(0, p->bt_label_bg_opa, 100);
+    load_str (obj, "bt_wallpaper",           p->bt_wallpaper, sizeof(p->bt_wallpaper));
+    load_bool(obj, "bt_show_ctrl_overlay",   &p->bt_show_ctrl_overlay);
+    load_bool(obj, "bt_volslider_show",      &p->bt_volslider_show);
+    load_bool(obj, "bt_volslider_vertical",  &p->bt_volslider_vertical);
+    load_bool(obj, "bt_volslider_knob_only", &p->bt_volslider_knob_only);
+    load_i16 (obj, "bt_volslider_x",         &p->bt_volslider_x);
+    load_i16 (obj, "bt_volslider_y",         &p->bt_volslider_y);
+    load_i16 (obj, "bt_volslider_w",         &p->bt_volslider_w);
+    load_i16 (obj, "bt_volslider_h",         &p->bt_volslider_h);
+    load_str (obj, "bt_volslider_knob_image", p->bt_volslider_knob_image, sizeof(p->bt_volslider_knob_image));
+    load_i16 (obj, "bt_volslider_vol_max",    &p->bt_volslider_vol_max);
+    load_hotspots(obj, "bt", p->bt_touch_hotspots);
+}
+
+static void load_radio(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_i16 (obj, "radio_np_x",                &p->radio_np_x);
+    load_i16 (obj, "radio_np_y",                &p->radio_np_y);
+    load_i16 (obj, "radio_np_w",                &p->radio_np_w);
+    load_bool(obj, "radio_show_np",             &p->radio_show_np);
+    load_bool(obj, "radio_show_np_title",       &p->radio_show_np_title);
+    load_i16 (obj, "radio_title_x",             &p->radio_title_x);
+    load_i16 (obj, "radio_title_y",             &p->radio_title_y);
+    load_i16 (obj, "radio_title_w",             &p->radio_title_w);
+    load_bool(obj, "radio_show_station_icon",   &p->radio_show_station_icon);
+    load_i16 (obj, "radio_station_icon_x",      &p->radio_station_icon_x);
+    load_i16 (obj, "radio_station_icon_y",      &p->radio_station_icon_y);
+    load_i16 (obj, "radio_station_icon_size",    &p->radio_station_icon_size);
+    if (p->radio_station_icon_size < 16) p->radio_station_icon_size = 16;
+    if (p->radio_station_icon_size > 64) p->radio_station_icon_size = 64;
+    load_font(obj, "radio_np_station_font",     &p->radio_np_station_font);
+    load_font(obj, "radio_np_title_font",       &p->radio_np_title_font);
+    load_u32 (obj, "radio_np_color",            &p->radio_np_color);
+    load_u32 (obj, "radio_title_color",         &p->radio_title_color);
+    load_bool(obj, "radio_show_playback_status", &p->radio_show_playback_status);
+    load_i16 (obj, "radio_state_x",             &p->radio_state_x);
+    load_i16 (obj, "radio_state_y",             &p->radio_state_y);
+    load_font(obj, "radio_state_font",          &p->radio_state_font);
+    load_u32 (obj, "radio_state_color",         &p->radio_state_color);
+    load_bool(obj, "radio_samplerate_show",     &p->radio_samplerate_show);
+    load_i16 (obj, "radio_samplerate_x",        &p->radio_samplerate_x);
+    load_i16 (obj, "radio_samplerate_y",        &p->radio_samplerate_y);
+    load_bool(obj, "radio_channels_show",       &p->radio_channels_show);
+    load_i16 (obj, "radio_channels_x",          &p->radio_channels_x);
+    load_i16 (obj, "radio_channels_y",          &p->radio_channels_y);
+    load_bool(obj, "radio_bitrate_show",        &p->radio_bitrate_show);
+    load_i16 (obj, "radio_bitrate_x",           &p->radio_bitrate_x);
+    load_i16 (obj, "radio_bitrate_y",           &p->radio_bitrate_y);
+    load_bool(obj, "radio_volume_show",         &p->radio_volume_show);
+    load_i16 (obj, "radio_volume_x",            &p->radio_volume_x);
+    load_i16 (obj, "radio_volume_y",            &p->radio_volume_y);
+    load_font(obj, "radio_audio_info_font",     &p->radio_audio_info_font);
+    load_u32 (obj, "radio_info_color",          &p->radio_info_color);
+    load_bool(obj, "radio_show_mode_indicator",  &p->radio_show_mode_indicator);
+    load_bool(obj, "radio_show_clock",           &p->radio_show_clock);
+    load_bool(obj, "radio_show_event_indicator", &p->radio_show_event_indicator);
+    load_i16 (obj, "radio_mode_indic_x",         &p->radio_mode_indic_x);
+    load_i16 (obj, "radio_mode_indic_y",         &p->radio_mode_indic_y);
+    load_i16 (obj, "radio_clock_widget_x",       &p->radio_clock_widget_x);
+    load_i16 (obj, "radio_clock_widget_y",       &p->radio_clock_widget_y);
+    load_font(obj, "radio_clock_font",           &p->radio_clock_font);
+    load_i16 (obj, "radio_event_indic_x",        &p->radio_event_indic_x);
+    load_i16 (obj, "radio_event_indic_y",        &p->radio_event_indic_y);
+    load_bool(obj, "radio_show_vu",              &p->radio_show_vu);
+    load_i16 (obj, "radio_vu_x",                 &p->radio_vu_x);
+    load_i16 (obj, "radio_vu_y",                 &p->radio_vu_y);
+    load_i16 (obj, "radio_vu_w",                 &p->radio_vu_w);
+    load_i16 (obj, "radio_vu_h",                 &p->radio_vu_h);
+    load_bool(obj, "radio_vu_transparent",       &p->radio_vu_transparent);
+    load_u32 (obj, "radio_vu_bg_color",          &p->radio_vu_bg_color);
+    load_u32 (obj, "radio_vu_bar_color",         &p->radio_vu_bar_color);
+    load_bool(obj, "radio_needle_show_l",        &p->radio_needle_show_l);
+    load_bool(obj, "radio_needle_show_r",        &p->radio_needle_show_r);
+    load_bool(obj, "radio_needle_transparent",   &p->radio_needle_transparent);
+    load_u32 (obj, "radio_needle_bg_color",      &p->radio_needle_bg_color);
+    load_u32 (obj, "radio_needle_color",         &p->radio_needle_color);
+    load_i16 (obj, "radio_needle_l_x",           &p->radio_needle_l_x);
+    load_i16 (obj, "radio_needle_l_y",           &p->radio_needle_l_y);
+    load_i16 (obj, "radio_needle_l_w",           &p->radio_needle_l_w);
+    load_i16 (obj, "radio_needle_l_h",           &p->radio_needle_l_h);
+    load_i16 (obj, "radio_needle_r_x",           &p->radio_needle_r_x);
+    load_i16 (obj, "radio_needle_r_y",           &p->radio_needle_r_y);
+    load_i16 (obj, "radio_needle_r_w",           &p->radio_needle_r_w);
+    load_i16 (obj, "radio_needle_r_h",           &p->radio_needle_r_h);
+    load_bool(obj, "radio_stereo_show_l",        &p->radio_stereo_show_l);
+    load_bool(obj, "radio_stereo_show_r",        &p->radio_stereo_show_r);
+    load_bool(obj, "radio_stereo_frame",         &p->radio_stereo_frame);
+    load_bool(obj, "radio_stereo_horizontal",    &p->radio_stereo_horizontal);
+    load_bool(obj, "radio_stereo_transparent",   &p->radio_stereo_transparent);
+    load_bool(obj, "radio_stereo_peak",          &p->radio_stereo_peak);
+    load_bool(obj, "radio_stereo_zones",         &p->radio_stereo_zones);
+    load_u32 (obj, "radio_stereo_bg_color",      &p->radio_stereo_bg_color);
+    load_u32 (obj, "radio_stereo_bar_color",     &p->radio_stereo_bar_color);
+    load_i16 (obj, "radio_stereo_l_x",           &p->radio_stereo_l_x);
+    load_i16 (obj, "radio_stereo_l_y",           &p->radio_stereo_l_y);
+    load_i16 (obj, "radio_stereo_l_w",           &p->radio_stereo_l_w);
+    load_i16 (obj, "radio_stereo_l_h",           &p->radio_stereo_l_h);
+    load_i16 (obj, "radio_stereo_r_x",           &p->radio_stereo_r_x);
+    load_i16 (obj, "radio_stereo_r_y",           &p->radio_stereo_r_y);
+    load_i16 (obj, "radio_stereo_r_w",           &p->radio_stereo_r_w);
+    load_i16 (obj, "radio_stereo_r_h",           &p->radio_stereo_r_h);
+    load_bool(obj, "radio_show_cassette",        &p->radio_show_cassette);
+    load_i16 (obj, "radio_animation_style",      &p->radio_animation_style);
+    p->radio_animation_style = LV_CLAMP(0, p->radio_animation_style, 1);
+    load_bool(obj, "radio_wheels_reverse",       &p->radio_wheels_reverse);
+    load_bool(obj, "radio_show_wheel_left",      &p->radio_show_wheel_left);
+    load_bool(obj, "radio_show_wheel_right",     &p->radio_show_wheel_right);
+    load_i16 (obj, "radio_cassette_l_x",         &p->radio_cassette_l_x);
+    load_i16 (obj, "radio_cassette_l_y",         &p->radio_cassette_l_y);
+    load_i16 (obj, "radio_cassette_l_size",      &p->radio_cassette_l_size);
+    load_i16 (obj, "radio_cassette_r_x",         &p->radio_cassette_r_x);
+    load_i16 (obj, "radio_cassette_r_y",         &p->radio_cassette_r_y);
+    load_i16 (obj, "radio_cassette_r_size",      &p->radio_cassette_r_size);
+    clamp_reel_size(&p->radio_cassette_l_size);
+    clamp_reel_size(&p->radio_cassette_r_size);
+    load_bool(obj, "radio_show_weather",         &p->radio_show_weather);
+    load_i16 (obj, "radio_weather_x",            &p->radio_weather_x);
+    load_i16 (obj, "radio_weather_y",            &p->radio_weather_y);
+    load_i16 (obj, "radio_weather_w",            &p->radio_weather_w);
+    load_font(obj, "radio_weather_font",         &p->radio_weather_font);
+    load_bool(obj, "radio_show_ctrl_overlay",    &p->radio_show_ctrl_overlay);
+    load_bool(obj, "radio_volslider_show",       &p->radio_volslider_show);
+    load_bool(obj, "radio_volslider_vertical",   &p->radio_volslider_vertical);
+    load_bool(obj, "radio_volslider_knob_only",  &p->radio_volslider_knob_only);
+    load_i16 (obj, "radio_volslider_x",          &p->radio_volslider_x);
+    load_i16 (obj, "radio_volslider_y",          &p->radio_volslider_y);
+    load_i16 (obj, "radio_volslider_w",          &p->radio_volslider_w);
+    load_i16 (obj, "radio_volslider_h",          &p->radio_volslider_h);
+    load_str (obj, "radio_volslider_knob_image", p->radio_volslider_knob_image, sizeof(p->radio_volslider_knob_image));
+    load_i16 (obj, "radio_volslider_vol_max",    &p->radio_volslider_vol_max);
+    load_i16 (obj, "radio_label_bg_opa",         &p->radio_label_bg_opa);
+    p->radio_label_bg_opa = LV_CLAMP(0, p->radio_label_bg_opa, 100);
+    load_str (obj, "radio_wallpaper",            p->radio_wallpaper, sizeof(p->radio_wallpaper));
+    load_hotspots(obj, "radio", p->radio_touch_hotspots);
+}
+
+static cJSON *dump_radio(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_i16 (o, "radio_np_x",                p->radio_np_x);
+    add_i16 (o, "radio_np_y",                p->radio_np_y);
+    add_i16 (o, "radio_np_w",                p->radio_np_w);
+    add_bool(o, "radio_show_np",             p->radio_show_np);
+    add_bool(o, "radio_show_np_title",       p->radio_show_np_title);
+    add_i16 (o, "radio_title_x",             p->radio_title_x);
+    add_i16 (o, "radio_title_y",             p->radio_title_y);
+    add_i16 (o, "radio_title_w",             p->radio_title_w);
+    add_bool(o, "radio_show_station_icon",   p->radio_show_station_icon);
+    add_i16 (o, "radio_station_icon_x",      p->radio_station_icon_x);
+    add_i16 (o, "radio_station_icon_y",      p->radio_station_icon_y);
+    add_i16 (o, "radio_station_icon_size",    p->radio_station_icon_size);
+    add_font(o, "radio_np_station_font",     p->radio_np_station_font);
+    add_font(o, "radio_np_title_font",       p->radio_np_title_font);
+    add_u32 (o, "radio_np_color",            p->radio_np_color);
+    add_u32 (o, "radio_title_color",         p->radio_title_color);
+    add_bool(o, "radio_show_playback_status", p->radio_show_playback_status);
+    add_i16 (o, "radio_state_x",             p->radio_state_x);
+    add_i16 (o, "radio_state_y",             p->radio_state_y);
+    add_font(o, "radio_state_font",          p->radio_state_font);
+    add_u32 (o, "radio_state_color",         p->radio_state_color);
+    add_bool(o, "radio_samplerate_show",     p->radio_samplerate_show);
+    add_i16 (o, "radio_samplerate_x",        p->radio_samplerate_x);
+    add_i16 (o, "radio_samplerate_y",        p->radio_samplerate_y);
+    add_bool(o, "radio_channels_show",       p->radio_channels_show);
+    add_i16 (o, "radio_channels_x",          p->radio_channels_x);
+    add_i16 (o, "radio_channels_y",          p->radio_channels_y);
+    add_bool(o, "radio_bitrate_show",        p->radio_bitrate_show);
+    add_i16 (o, "radio_bitrate_x",           p->radio_bitrate_x);
+    add_i16 (o, "radio_bitrate_y",           p->radio_bitrate_y);
+    add_bool(o, "radio_volume_show",         p->radio_volume_show);
+    add_i16 (o, "radio_volume_x",            p->radio_volume_x);
+    add_i16 (o, "radio_volume_y",            p->radio_volume_y);
+    add_font(o, "radio_audio_info_font",     p->radio_audio_info_font);
+    add_u32 (o, "radio_info_color",          p->radio_info_color);
+    add_bool(o, "radio_show_mode_indicator",  p->radio_show_mode_indicator);
+    add_bool(o, "radio_show_clock",           p->radio_show_clock);
+    add_bool(o, "radio_show_event_indicator", p->radio_show_event_indicator);
+    add_i16 (o, "radio_mode_indic_x",         p->radio_mode_indic_x);
+    add_i16 (o, "radio_mode_indic_y",         p->radio_mode_indic_y);
+    add_i16 (o, "radio_clock_widget_x",       p->radio_clock_widget_x);
+    add_i16 (o, "radio_clock_widget_y",       p->radio_clock_widget_y);
+    add_font(o, "radio_clock_font",           p->radio_clock_font);
+    add_i16 (o, "radio_event_indic_x",        p->radio_event_indic_x);
+    add_i16 (o, "radio_event_indic_y",        p->radio_event_indic_y);
+    add_bool(o, "radio_show_vu",              p->radio_show_vu);
+    add_i16 (o, "radio_vu_x",                 p->radio_vu_x);
+    add_i16 (o, "radio_vu_y",                 p->radio_vu_y);
+    add_i16 (o, "radio_vu_w",                 p->radio_vu_w);
+    add_i16 (o, "radio_vu_h",                 p->radio_vu_h);
+    add_bool(o, "radio_vu_transparent",       p->radio_vu_transparent);
+    add_u32 (o, "radio_vu_bg_color",          p->radio_vu_bg_color);
+    add_u32 (o, "radio_vu_bar_color",         p->radio_vu_bar_color);
+    add_bool(o, "radio_needle_show_l",        p->radio_needle_show_l);
+    add_bool(o, "radio_needle_show_r",        p->radio_needle_show_r);
+    add_bool(o, "radio_needle_transparent",   p->radio_needle_transparent);
+    add_u32 (o, "radio_needle_bg_color",      p->radio_needle_bg_color);
+    add_u32 (o, "radio_needle_color",         p->radio_needle_color);
+    add_i16 (o, "radio_needle_l_x",           p->radio_needle_l_x);
+    add_i16 (o, "radio_needle_l_y",           p->radio_needle_l_y);
+    add_i16 (o, "radio_needle_l_w",           p->radio_needle_l_w);
+    add_i16 (o, "radio_needle_l_h",           p->radio_needle_l_h);
+    add_i16 (o, "radio_needle_r_x",           p->radio_needle_r_x);
+    add_i16 (o, "radio_needle_r_y",           p->radio_needle_r_y);
+    add_i16 (o, "radio_needle_r_w",           p->radio_needle_r_w);
+    add_i16 (o, "radio_needle_r_h",           p->radio_needle_r_h);
+    add_bool(o, "radio_stereo_show_l",        p->radio_stereo_show_l);
+    add_bool(o, "radio_stereo_show_r",        p->radio_stereo_show_r);
+    add_bool(o, "radio_stereo_frame",         p->radio_stereo_frame);
+    add_bool(o, "radio_stereo_horizontal",    p->radio_stereo_horizontal);
+    add_bool(o, "radio_stereo_transparent",   p->radio_stereo_transparent);
+    add_bool(o, "radio_stereo_peak",          p->radio_stereo_peak);
+    add_bool(o, "radio_stereo_zones",         p->radio_stereo_zones);
+    add_u32 (o, "radio_stereo_bg_color",      p->radio_stereo_bg_color);
+    add_u32 (o, "radio_stereo_bar_color",     p->radio_stereo_bar_color);
+    add_i16 (o, "radio_stereo_l_x",           p->radio_stereo_l_x);
+    add_i16 (o, "radio_stereo_l_y",           p->radio_stereo_l_y);
+    add_i16 (o, "radio_stereo_l_w",           p->radio_stereo_l_w);
+    add_i16 (o, "radio_stereo_l_h",           p->radio_stereo_l_h);
+    add_i16 (o, "radio_stereo_r_x",           p->radio_stereo_r_x);
+    add_i16 (o, "radio_stereo_r_y",           p->radio_stereo_r_y);
+    add_i16 (o, "radio_stereo_r_w",           p->radio_stereo_r_w);
+    add_i16 (o, "radio_stereo_r_h",           p->radio_stereo_r_h);
+    add_bool(o, "radio_show_cassette",        p->radio_show_cassette);
+    add_i16 (o, "radio_animation_style",      p->radio_animation_style);
+    add_bool(o, "radio_wheels_reverse",       p->radio_wheels_reverse);
+    add_bool(o, "radio_show_wheel_left",      p->radio_show_wheel_left);
+    add_bool(o, "radio_show_wheel_right",     p->radio_show_wheel_right);
+    add_i16 (o, "radio_cassette_l_x",         p->radio_cassette_l_x);
+    add_i16 (o, "radio_cassette_l_y",         p->radio_cassette_l_y);
+    add_i16 (o, "radio_cassette_l_size",      p->radio_cassette_l_size);
+    add_i16 (o, "radio_cassette_r_x",         p->radio_cassette_r_x);
+    add_i16 (o, "radio_cassette_r_y",         p->radio_cassette_r_y);
+    add_i16 (o, "radio_cassette_r_size",      p->radio_cassette_r_size);
+    add_bool(o, "radio_show_weather",         p->radio_show_weather);
+    add_i16 (o, "radio_weather_x",            p->radio_weather_x);
+    add_i16 (o, "radio_weather_y",            p->radio_weather_y);
+    add_i16 (o, "radio_weather_w",            p->radio_weather_w);
+    add_font(o, "radio_weather_font",         p->radio_weather_font);
+    add_bool(o, "radio_show_ctrl_overlay",    p->radio_show_ctrl_overlay);
+    add_bool(o, "radio_volslider_show",       p->radio_volslider_show);
+    add_bool(o, "radio_volslider_vertical",   p->radio_volslider_vertical);
+    add_bool(o, "radio_volslider_knob_only",  p->radio_volslider_knob_only);
+    add_i16 (o, "radio_volslider_x",          p->radio_volslider_x);
+    add_i16 (o, "radio_volslider_y",          p->radio_volslider_y);
+    add_i16 (o, "radio_volslider_w",          p->radio_volslider_w);
+    add_i16 (o, "radio_volslider_h",          p->radio_volslider_h);
+    add_str (o, "radio_volslider_knob_image", p->radio_volslider_knob_image);
+    add_i16 (o, "radio_volslider_vol_max",    p->radio_volslider_vol_max);
+    add_i16 (o, "radio_label_bg_opa",         p->radio_label_bg_opa);
+    add_str (o, "radio_wallpaper",            p->radio_wallpaper);
+    dump_hotspots(o, "radio", p->radio_touch_hotspots);
+    return o;
+}
+
+static void load_sd(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_i16 (obj, "sd_title_x",                &p->sd_title_x);
+    load_i16 (obj, "sd_title_y",                &p->sd_title_y);
+    load_i16 (obj, "sd_title_w",                &p->sd_title_w);
+    load_font(obj, "sd_title_font",             &p->sd_title_font);
+    load_u32 (obj, "sd_title_color",            &p->sd_title_color);
+    load_i16 (obj, "sd_folder_x",               &p->sd_folder_x);
+    load_i16 (obj, "sd_folder_y",               &p->sd_folder_y);
+    // sd_folder_x used to be the label's centre; it is now the left edge of a
+    // sd_folder_w-wide box, like sd_title. A layout saved before the change has
+    // no sd_folder_w — convert its centre to a left edge so the row does not
+    // jump to the right after an update.
+    if (cJSON_GetObjectItem(obj, "sd_folder_w")) {
+        load_i16(obj, "sd_folder_w",            &p->sd_folder_w);
+    } else if (cJSON_GetObjectItem(obj, "sd_folder_x")) {
+        p->sd_folder_x -= p->sd_folder_w / 2;
+    }
+    load_font(obj, "sd_folder_font",            &p->sd_folder_font);
+    load_u32 (obj, "sd_folder_color",           &p->sd_folder_color);
+    load_bool(obj, "sd_volume_show",            &p->sd_volume_show);
+    load_i16 (obj, "sd_volume_x",               &p->sd_volume_x);
+    load_i16 (obj, "sd_volume_y",               &p->sd_volume_y);
+    load_bool(obj, "sd_status_show",            &p->sd_status_show);
+    load_i16 (obj, "sd_status_x",               &p->sd_status_x);
+    load_i16 (obj, "sd_status_y",               &p->sd_status_y);
+    load_font(obj, "sd_info_font",              &p->sd_info_font);
+    load_u32 (obj, "sd_info_color",             &p->sd_info_color);
+    load_bool(obj, "sd_show_folder",            &p->sd_show_folder);
+    load_bool(obj, "sd_show_time",              &p->sd_show_time);
+    load_i16 (obj, "sd_time_x",                 &p->sd_time_x);
+    load_i16 (obj, "sd_time_y",                 &p->sd_time_y);
+    load_bool(obj, "sd_show_bar",               &p->sd_show_bar);
+    load_i16 (obj, "sd_bar_x",                  &p->sd_bar_x);
+    load_i16 (obj, "sd_bar_y",                  &p->sd_bar_y);
+    load_i16 (obj, "sd_bar_w",                  &p->sd_bar_w);
+    load_i16 (obj, "sd_bar_h",                  &p->sd_bar_h);
+    load_u32 (obj, "sd_bar_color",              &p->sd_bar_color);
+    load_u32 (obj, "sd_bar_bg_color",           &p->sd_bar_bg_color);
+    load_bool(obj, "sd_show_cover",             &p->sd_show_cover);
+    load_i16 (obj, "sd_cover_x",                &p->sd_cover_x);
+    load_i16 (obj, "sd_cover_y",                &p->sd_cover_y);
+    load_i16 (obj, "sd_cover_size",             &p->sd_cover_size);
+    if (p->sd_cover_size < 16)  p->sd_cover_size = 16;
+    if (p->sd_cover_size > 240) p->sd_cover_size = 240;
+    load_bool(obj, "sd_show_mode_indicator",    &p->sd_show_mode_indicator);
+    load_bool(obj, "sd_show_clock",             &p->sd_show_clock);
+    load_bool(obj, "sd_show_event_indicator",   &p->sd_show_event_indicator);
+    load_i16 (obj, "sd_mode_indic_x",           &p->sd_mode_indic_x);
+    load_i16 (obj, "sd_mode_indic_y",           &p->sd_mode_indic_y);
+    load_i16 (obj, "sd_clock_widget_x",         &p->sd_clock_widget_x);
+    load_i16 (obj, "sd_clock_widget_y",         &p->sd_clock_widget_y);
+    load_font(obj, "sd_clock_font",             &p->sd_clock_font);
+    load_i16 (obj, "sd_event_indic_x",          &p->sd_event_indic_x);
+    load_i16 (obj, "sd_event_indic_y",          &p->sd_event_indic_y);
+    load_bool(obj, "sd_show_vu",                &p->sd_show_vu);
+    load_i16 (obj, "sd_vu_x",                   &p->sd_vu_x);
+    load_i16 (obj, "sd_vu_y",                   &p->sd_vu_y);
+    load_i16 (obj, "sd_vu_w",                   &p->sd_vu_w);
+    load_i16 (obj, "sd_vu_h",                   &p->sd_vu_h);
+    load_bool(obj, "sd_vu_transparent",         &p->sd_vu_transparent);
+    load_u32 (obj, "sd_vu_bg_color",            &p->sd_vu_bg_color);
+    load_u32 (obj, "sd_vu_bar_color",           &p->sd_vu_bar_color);
+    load_bool(obj, "sd_needle_show_l",          &p->sd_needle_show_l);
+    load_bool(obj, "sd_needle_show_r",          &p->sd_needle_show_r);
+    load_bool(obj, "sd_needle_transparent",     &p->sd_needle_transparent);
+    load_u32 (obj, "sd_needle_bg_color",        &p->sd_needle_bg_color);
+    load_u32 (obj, "sd_needle_color",           &p->sd_needle_color);
+    load_i16 (obj, "sd_needle_l_x",             &p->sd_needle_l_x);
+    load_i16 (obj, "sd_needle_l_y",             &p->sd_needle_l_y);
+    load_i16 (obj, "sd_needle_l_w",             &p->sd_needle_l_w);
+    load_i16 (obj, "sd_needle_l_h",             &p->sd_needle_l_h);
+    load_i16 (obj, "sd_needle_r_x",             &p->sd_needle_r_x);
+    load_i16 (obj, "sd_needle_r_y",             &p->sd_needle_r_y);
+    load_i16 (obj, "sd_needle_r_w",             &p->sd_needle_r_w);
+    load_i16 (obj, "sd_needle_r_h",             &p->sd_needle_r_h);
+    load_bool(obj, "sd_stereo_show_l",          &p->sd_stereo_show_l);
+    load_bool(obj, "sd_stereo_show_r",          &p->sd_stereo_show_r);
+    load_bool(obj, "sd_stereo_frame",           &p->sd_stereo_frame);
+    load_bool(obj, "sd_stereo_horizontal",      &p->sd_stereo_horizontal);
+    load_bool(obj, "sd_stereo_transparent",     &p->sd_stereo_transparent);
+    load_bool(obj, "sd_stereo_peak",            &p->sd_stereo_peak);
+    load_bool(obj, "sd_stereo_zones",           &p->sd_stereo_zones);
+    load_u32 (obj, "sd_stereo_bg_color",        &p->sd_stereo_bg_color);
+    load_u32 (obj, "sd_stereo_bar_color",       &p->sd_stereo_bar_color);
+    load_i16 (obj, "sd_stereo_l_x",             &p->sd_stereo_l_x);
+    load_i16 (obj, "sd_stereo_l_y",             &p->sd_stereo_l_y);
+    load_i16 (obj, "sd_stereo_l_w",             &p->sd_stereo_l_w);
+    load_i16 (obj, "sd_stereo_l_h",             &p->sd_stereo_l_h);
+    load_i16 (obj, "sd_stereo_r_x",             &p->sd_stereo_r_x);
+    load_i16 (obj, "sd_stereo_r_y",             &p->sd_stereo_r_y);
+    load_i16 (obj, "sd_stereo_r_w",             &p->sd_stereo_r_w);
+    load_i16 (obj, "sd_stereo_r_h",             &p->sd_stereo_r_h);
+    load_bool(obj, "sd_show_cassette",          &p->sd_show_cassette);
+    load_i16 (obj, "sd_animation_style",        &p->sd_animation_style);
+    p->sd_animation_style = LV_CLAMP(0, p->sd_animation_style, 1);
+    load_bool(obj, "sd_wheels_reverse",         &p->sd_wheels_reverse);
+    load_bool(obj, "sd_show_wheel_left",        &p->sd_show_wheel_left);
+    load_bool(obj, "sd_show_wheel_right",       &p->sd_show_wheel_right);
+    load_i16 (obj, "sd_cassette_l_x",           &p->sd_cassette_l_x);
+    load_i16 (obj, "sd_cassette_l_y",           &p->sd_cassette_l_y);
+    load_i16 (obj, "sd_cassette_l_size",        &p->sd_cassette_l_size);
+    load_i16 (obj, "sd_cassette_r_x",           &p->sd_cassette_r_x);
+    load_i16 (obj, "sd_cassette_r_y",           &p->sd_cassette_r_y);
+    load_i16 (obj, "sd_cassette_r_size",        &p->sd_cassette_r_size);
+    clamp_reel_size(&p->sd_cassette_l_size);
+    clamp_reel_size(&p->sd_cassette_r_size);
+    load_bool(obj, "sd_show_weather",           &p->sd_show_weather);
+    load_i16 (obj, "sd_weather_x",              &p->sd_weather_x);
+    load_i16 (obj, "sd_weather_y",              &p->sd_weather_y);
+    load_i16 (obj, "sd_weather_w",              &p->sd_weather_w);
+    load_font(obj, "sd_weather_font",           &p->sd_weather_font);
+    load_bool(obj, "sd_show_ctrl_overlay",      &p->sd_show_ctrl_overlay);
+    load_bool(obj, "sd_volslider_show",         &p->sd_volslider_show);
+    load_bool(obj, "sd_volslider_vertical",     &p->sd_volslider_vertical);
+    load_bool(obj, "sd_volslider_knob_only",    &p->sd_volslider_knob_only);
+    load_i16 (obj, "sd_volslider_x",            &p->sd_volslider_x);
+    load_i16 (obj, "sd_volslider_y",            &p->sd_volslider_y);
+    load_i16 (obj, "sd_volslider_w",            &p->sd_volslider_w);
+    load_i16 (obj, "sd_volslider_h",            &p->sd_volslider_h);
+    load_str (obj, "sd_volslider_knob_image",   p->sd_volslider_knob_image, sizeof(p->sd_volslider_knob_image));
+    load_i16 (obj, "sd_volslider_vol_max",      &p->sd_volslider_vol_max);
+    load_i16 (obj, "sd_label_bg_opa",           &p->sd_label_bg_opa);
+    p->sd_label_bg_opa = LV_CLAMP(0, p->sd_label_bg_opa, 100);
+    load_str (obj, "sd_wallpaper",              p->sd_wallpaper, sizeof(p->sd_wallpaper));
+    load_hotspots(obj, "sd", p->sd_touch_hotspots);
+}
+
+static cJSON *dump_sd(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_i16 (o, "sd_title_x",                p->sd_title_x);
+    add_i16 (o, "sd_title_y",                p->sd_title_y);
+    add_i16 (o, "sd_title_w",                p->sd_title_w);
+    add_font(o, "sd_title_font",             p->sd_title_font);
+    add_u32 (o, "sd_title_color",            p->sd_title_color);
+    add_i16 (o, "sd_folder_x",               p->sd_folder_x);
+    add_i16 (o, "sd_folder_y",               p->sd_folder_y);
+    add_i16 (o, "sd_folder_w",               p->sd_folder_w);
+    add_font(o, "sd_folder_font",            p->sd_folder_font);
+    add_u32 (o, "sd_folder_color",           p->sd_folder_color);
+    add_bool(o, "sd_volume_show",            p->sd_volume_show);
+    add_i16 (o, "sd_volume_x",               p->sd_volume_x);
+    add_i16 (o, "sd_volume_y",               p->sd_volume_y);
+    add_bool(o, "sd_status_show",            p->sd_status_show);
+    add_i16 (o, "sd_status_x",               p->sd_status_x);
+    add_i16 (o, "sd_status_y",               p->sd_status_y);
+    add_font(o, "sd_info_font",              p->sd_info_font);
+    add_u32 (o, "sd_info_color",             p->sd_info_color);
+    add_bool(o, "sd_show_folder",            p->sd_show_folder);
+    add_bool(o, "sd_show_time",              p->sd_show_time);
+    add_i16 (o, "sd_time_x",                 p->sd_time_x);
+    add_i16 (o, "sd_time_y",                 p->sd_time_y);
+    add_bool(o, "sd_show_bar",               p->sd_show_bar);
+    add_i16 (o, "sd_bar_x",                  p->sd_bar_x);
+    add_i16 (o, "sd_bar_y",                  p->sd_bar_y);
+    add_i16 (o, "sd_bar_w",                  p->sd_bar_w);
+    add_i16 (o, "sd_bar_h",                  p->sd_bar_h);
+    add_u32 (o, "sd_bar_color",              p->sd_bar_color);
+    add_u32 (o, "sd_bar_bg_color",           p->sd_bar_bg_color);
+    add_bool(o, "sd_show_cover",             p->sd_show_cover);
+    add_i16 (o, "sd_cover_x",                p->sd_cover_x);
+    add_i16 (o, "sd_cover_y",                p->sd_cover_y);
+    add_i16 (o, "sd_cover_size",             p->sd_cover_size);
+    add_bool(o, "sd_show_mode_indicator",    p->sd_show_mode_indicator);
+    add_bool(o, "sd_show_clock",             p->sd_show_clock);
+    add_bool(o, "sd_show_event_indicator",   p->sd_show_event_indicator);
+    add_i16 (o, "sd_mode_indic_x",           p->sd_mode_indic_x);
+    add_i16 (o, "sd_mode_indic_y",           p->sd_mode_indic_y);
+    add_i16 (o, "sd_clock_widget_x",         p->sd_clock_widget_x);
+    add_i16 (o, "sd_clock_widget_y",         p->sd_clock_widget_y);
+    add_font(o, "sd_clock_font",             p->sd_clock_font);
+    add_i16 (o, "sd_event_indic_x",          p->sd_event_indic_x);
+    add_i16 (o, "sd_event_indic_y",          p->sd_event_indic_y);
+    add_bool(o, "sd_show_vu",                p->sd_show_vu);
+    add_i16 (o, "sd_vu_x",                   p->sd_vu_x);
+    add_i16 (o, "sd_vu_y",                   p->sd_vu_y);
+    add_i16 (o, "sd_vu_w",                   p->sd_vu_w);
+    add_i16 (o, "sd_vu_h",                   p->sd_vu_h);
+    add_bool(o, "sd_vu_transparent",         p->sd_vu_transparent);
+    add_u32 (o, "sd_vu_bg_color",            p->sd_vu_bg_color);
+    add_u32 (o, "sd_vu_bar_color",           p->sd_vu_bar_color);
+    add_bool(o, "sd_needle_show_l",          p->sd_needle_show_l);
+    add_bool(o, "sd_needle_show_r",          p->sd_needle_show_r);
+    add_bool(o, "sd_needle_transparent",     p->sd_needle_transparent);
+    add_u32 (o, "sd_needle_bg_color",        p->sd_needle_bg_color);
+    add_u32 (o, "sd_needle_color",           p->sd_needle_color);
+    add_i16 (o, "sd_needle_l_x",             p->sd_needle_l_x);
+    add_i16 (o, "sd_needle_l_y",             p->sd_needle_l_y);
+    add_i16 (o, "sd_needle_l_w",             p->sd_needle_l_w);
+    add_i16 (o, "sd_needle_l_h",             p->sd_needle_l_h);
+    add_i16 (o, "sd_needle_r_x",             p->sd_needle_r_x);
+    add_i16 (o, "sd_needle_r_y",             p->sd_needle_r_y);
+    add_i16 (o, "sd_needle_r_w",             p->sd_needle_r_w);
+    add_i16 (o, "sd_needle_r_h",             p->sd_needle_r_h);
+    add_bool(o, "sd_stereo_show_l",          p->sd_stereo_show_l);
+    add_bool(o, "sd_stereo_show_r",          p->sd_stereo_show_r);
+    add_bool(o, "sd_stereo_frame",           p->sd_stereo_frame);
+    add_bool(o, "sd_stereo_horizontal",      p->sd_stereo_horizontal);
+    add_bool(o, "sd_stereo_transparent",     p->sd_stereo_transparent);
+    add_bool(o, "sd_stereo_peak",            p->sd_stereo_peak);
+    add_bool(o, "sd_stereo_zones",           p->sd_stereo_zones);
+    add_u32 (o, "sd_stereo_bg_color",        p->sd_stereo_bg_color);
+    add_u32 (o, "sd_stereo_bar_color",       p->sd_stereo_bar_color);
+    add_i16 (o, "sd_stereo_l_x",             p->sd_stereo_l_x);
+    add_i16 (o, "sd_stereo_l_y",             p->sd_stereo_l_y);
+    add_i16 (o, "sd_stereo_l_w",             p->sd_stereo_l_w);
+    add_i16 (o, "sd_stereo_l_h",             p->sd_stereo_l_h);
+    add_i16 (o, "sd_stereo_r_x",             p->sd_stereo_r_x);
+    add_i16 (o, "sd_stereo_r_y",             p->sd_stereo_r_y);
+    add_i16 (o, "sd_stereo_r_w",             p->sd_stereo_r_w);
+    add_i16 (o, "sd_stereo_r_h",             p->sd_stereo_r_h);
+    add_bool(o, "sd_show_cassette",          p->sd_show_cassette);
+    add_i16 (o, "sd_animation_style",        p->sd_animation_style);
+    add_bool(o, "sd_wheels_reverse",         p->sd_wheels_reverse);
+    add_bool(o, "sd_show_wheel_left",        p->sd_show_wheel_left);
+    add_bool(o, "sd_show_wheel_right",       p->sd_show_wheel_right);
+    add_i16 (o, "sd_cassette_l_x",           p->sd_cassette_l_x);
+    add_i16 (o, "sd_cassette_l_y",           p->sd_cassette_l_y);
+    add_i16 (o, "sd_cassette_l_size",        p->sd_cassette_l_size);
+    add_i16 (o, "sd_cassette_r_x",           p->sd_cassette_r_x);
+    add_i16 (o, "sd_cassette_r_y",           p->sd_cassette_r_y);
+    add_i16 (o, "sd_cassette_r_size",        p->sd_cassette_r_size);
+    add_bool(o, "sd_show_weather",           p->sd_show_weather);
+    add_i16 (o, "sd_weather_x",              p->sd_weather_x);
+    add_i16 (o, "sd_weather_y",              p->sd_weather_y);
+    add_i16 (o, "sd_weather_w",              p->sd_weather_w);
+    add_font(o, "sd_weather_font",           p->sd_weather_font);
+    add_bool(o, "sd_show_ctrl_overlay",      p->sd_show_ctrl_overlay);
+    add_bool(o, "sd_volslider_show",         p->sd_volslider_show);
+    add_bool(o, "sd_volslider_vertical",     p->sd_volslider_vertical);
+    add_bool(o, "sd_volslider_knob_only",    p->sd_volslider_knob_only);
+    add_i16 (o, "sd_volslider_x",            p->sd_volslider_x);
+    add_i16 (o, "sd_volslider_y",            p->sd_volslider_y);
+    add_i16 (o, "sd_volslider_w",            p->sd_volslider_w);
+    add_i16 (o, "sd_volslider_h",            p->sd_volslider_h);
+    add_str (o, "sd_volslider_knob_image",   p->sd_volslider_knob_image);
+    add_i16 (o, "sd_volslider_vol_max",      p->sd_volslider_vol_max);
+    add_i16 (o, "sd_label_bg_opa",           p->sd_label_bg_opa);
+    add_str (o, "sd_wallpaper",              p->sd_wallpaper);
+    dump_hotspots(o, "sd", p->sd_touch_hotspots);
+    return o;
+}
+
+static cJSON *dump_bt(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_i16 (o, "bt_circle_x",            p->bt_circle_x);
+    add_i16 (o, "bt_circle_y",            p->bt_circle_y);
+    add_i16 (o, "bt_circle_w",            p->bt_circle_w);
+    add_i16 (o, "bt_circle_h",            p->bt_circle_h);
+    add_font(o, "bt_icon_font",           p->bt_icon_font);
+    add_bool(o, "bt_show_circle",         p->bt_show_circle);
+    add_i16 (o, "bt_brand_x",             p->bt_brand_x);
+    add_i16 (o, "bt_brand_y",             p->bt_brand_y);
+    add_font(o, "bt_brand_font",          p->bt_brand_font);
+    add_u32 (o, "bt_brand_color",         p->bt_brand_color);
+    add_i16 (o, "bt_status_x",            p->bt_status_x);
+    add_i16 (o, "bt_status_y",            p->bt_status_y);
+    add_font(o, "bt_status_font",         p->bt_status_font);
+    add_u32 (o, "bt_status_color",        p->bt_status_color);
+    add_i16 (o, "bt_vol_x",               p->bt_vol_x);
+    add_i16 (o, "bt_vol_y",               p->bt_vol_y);
+    add_font(o, "bt_vol_label_font",      p->bt_vol_label_font);
+    add_u32 (o, "bt_vol_color",           p->bt_vol_color);
+    add_bool(o, "bt_show_mode_indicator", p->bt_show_mode_indicator);
+    add_bool(o, "bt_show_clock",          p->bt_show_clock);
+    add_i16 (o, "bt_mode_indic_x",        p->bt_mode_indic_x);
+    add_i16 (o, "bt_mode_indic_y",        p->bt_mode_indic_y);
+    add_i16 (o, "bt_clock_widget_x",      p->bt_clock_widget_x);
+    add_i16 (o, "bt_clock_widget_y",      p->bt_clock_widget_y);
+    add_font(o, "bt_clock_font",          p->bt_clock_font);
+    add_i16 (o, "bt_title_x",             p->bt_title_x);
+    add_i16 (o, "bt_title_y",             p->bt_title_y);
+    add_i16 (o, "bt_title_w",             p->bt_title_w);
+    add_font(o, "bt_title_font",          p->bt_title_font);
+    add_u32 (o, "bt_title_color",         p->bt_title_color);
+    add_i16 (o, "bt_artist_x",            p->bt_artist_x);
+    add_i16 (o, "bt_artist_y",            p->bt_artist_y);
+    add_i16 (o, "bt_artist_w",            p->bt_artist_w);
+    add_font(o, "bt_artist_font",         p->bt_artist_font);
+    add_u32 (o, "bt_artist_color",        p->bt_artist_color);
+    add_i16 (o, "bt_time_x",              p->bt_time_x);
+    add_i16 (o, "bt_time_y",              p->bt_time_y);
+    add_font(o, "bt_time_font",           p->bt_time_font);
+    add_u32 (o, "bt_time_color",          p->bt_time_color);
+    add_i16 (o, "bt_label_bg_opa",        p->bt_label_bg_opa);
+    add_str (o, "bt_wallpaper",           p->bt_wallpaper);
+    add_bool(o, "bt_show_ctrl_overlay",   p->bt_show_ctrl_overlay);
+    add_bool(o, "bt_volslider_show",      p->bt_volslider_show);
+    add_bool(o, "bt_volslider_vertical",  p->bt_volslider_vertical);
+    add_bool(o, "bt_volslider_knob_only", p->bt_volslider_knob_only);
+    add_i16 (o, "bt_volslider_x",         p->bt_volslider_x);
+    add_i16 (o, "bt_volslider_y",         p->bt_volslider_y);
+    add_i16 (o, "bt_volslider_w",         p->bt_volslider_w);
+    add_i16 (o, "bt_volslider_h",         p->bt_volslider_h);
+    add_str (o, "bt_volslider_knob_image", p->bt_volslider_knob_image);
+    add_i16 (o, "bt_volslider_vol_max",    p->bt_volslider_vol_max);
+    dump_hotspots(o, "bt", p->bt_touch_hotspots);
+    return o;
+}
+
+static cJSON *dump_clock(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_i16 (o, "clock_strip_x",              p->clock_strip_x);
+    add_i16 (o, "clock_strip_y",              p->clock_strip_y);
+    add_i16 (o, "clock_strip_w",              p->clock_strip_w);
+    add_i16 (o, "clock_strip_h",              p->clock_strip_h);
+    add_i16 (o, "clock_strip_bg_opa",         p->clock_strip_bg_opa);
+    add_i16 (o, "clock_strip_station_w",      p->clock_strip_station_w);
+    add_i16 (o, "clock_strip_station_x",      p->clock_strip_station_x);
+    add_i16 (o, "clock_strip_station_y",      p->clock_strip_station_y);
+    add_i16 (o, "clock_strip_title_w",        p->clock_strip_title_w);
+    add_i16 (o, "clock_strip_title_x",        p->clock_strip_title_x);
+    add_i16 (o, "clock_strip_title_y",        p->clock_strip_title_y);
+    add_font(o, "clock_strip_station_font",   p->clock_strip_station_font);
+    add_font(o, "clock_strip_title_font",     p->clock_strip_title_font);
+    add_u32 (o, "clock_strip_station_color",  p->clock_strip_station_color);
+    add_u32 (o, "clock_strip_title_color",    p->clock_strip_title_color);
+    add_i16 (o, "clock_time_x",               p->clock_time_x);
+    add_i16 (o, "clock_time_y",               p->clock_time_y);
+    add_font(o, "clock_time_font",            p->clock_time_font);
+    add_bool(o, "clock_show_time",            p->clock_show_time);
+    add_u32 (o, "clock_time_color",           p->clock_time_color);
+    add_i16 (o, "clock_date_x",               p->clock_date_x);
+    add_i16 (o, "clock_date_y",               p->clock_date_y);
+    add_font(o, "clock_date_font",            p->clock_date_font);
+    add_bool(o, "clock_show_date",            p->clock_show_date);
+    add_u32 (o, "clock_date_color",           p->clock_date_color);
+    add_bool(o, "clock_show_netinfo",         p->clock_show_netinfo);
+    add_i16 (o, "clock_netinfo_x",            p->clock_netinfo_x);
+    add_i16 (o, "clock_netinfo_y",            p->clock_netinfo_y);
+    add_font(o, "clock_netinfo_font",         p->clock_netinfo_font);
+    add_u32 (o, "clock_netinfo_color",        p->clock_netinfo_color);
+    add_bool(o, "clock_show_strip",           p->clock_show_strip);
+    add_bool(o, "clock_show_mode_indicator",  p->clock_show_mode_indicator);
+    add_bool(o, "clock_show_event_indicator", p->clock_show_event_indicator);
+    add_i16 (o, "clock_mode_indic_x",         p->clock_mode_indic_x);
+    add_i16 (o, "clock_mode_indic_y",         p->clock_mode_indic_y);
+    add_i16 (o, "clock_event_indic_x",        p->clock_event_indic_x);
+    add_i16 (o, "clock_event_indic_y",        p->clock_event_indic_y);
+    add_bool(o, "clock_show_calendar",        p->clock_show_calendar);
+    add_i16 (o, "clock_calendar_x",           p->clock_calendar_x);
+    add_i16 (o, "clock_calendar_y",           p->clock_calendar_y);
+    add_i16 (o, "clock_calendar_w",           p->clock_calendar_w);
+    add_font(o, "clock_calendar_font",        p->clock_calendar_font);
+    add_bool(o, "clock_show_weather",         p->clock_show_weather);
+    add_i16 (o, "clock_weather_x",            p->clock_weather_x);
+    add_i16 (o, "clock_weather_y",            p->clock_weather_y);
+    add_i16 (o, "clock_weather_w",            p->clock_weather_w);
+    add_font(o, "clock_weather_font",         p->clock_weather_font);
+    add_i16 (o, "clock_label_bg_opa",         p->clock_label_bg_opa);
+    add_str (o, "clock_wallpaper",            p->clock_wallpaper);
+    return o;
+}
+
+// screen_equalizer — geometry stays compile-time (per-profile k_defaults); only
+// the artwork/background paths are user-editable from the web layout editor.
+// Effective response-curve box: the stored x/y/w/h, or an auto layout (right
+// ~45% of the header strip) when w/h are unset. Single source shared by dump_eq
+// (so the web editor always gets a real box to drag) and screen_equalizer.
+void ui_profile_eq_curve_box(const ui_profile_t *p,
+                             int16_t *x, int16_t *y, int16_t *w, int16_t *h)
+{
+    if (p->eq_curve_w > 0 && p->eq_curve_h > 0) {
+        *x = p->eq_curve_x; *y = p->eq_curve_y;
+        *w = p->eq_curve_w; *h = p->eq_curve_h;
+        return;
+    }
+    int16_t aw = DISPLAY_WIDTH * 45 / 100;
+    *w = aw;
+    *x = (int16_t)(DISPLAY_WIDTH - aw - 4);
+    *y = 4;
+    int16_t ah = (int16_t)(p->eq_band_area_y - 8);
+    *h = ah > 0 ? ah : 0;
+}
+
+// The box IS the band span: x/y/w come straight from the profile, only the height
+// is derived (slider + frequency label strip). screen_equalizer spreads the bands
+// across the span, so its edges are exactly the outer sliders' edges — no leftover
+// strip, and every 1 px of span moves a band.
+void ui_profile_eq_group_box(const ui_profile_t *p,
+                             int16_t *x, int16_t *y, int16_t *w, int16_t *h)
+{
+    int fh = p->eq_freq_font ? lv_font_get_line_height(p->eq_freq_font) : 0;
+    int freq_area = p->eq_freq_hide ? 0 : (fh + 6);
+    int sh = p->eq_slider_h > 1 ? p->eq_slider_h : 1;
+    int sw = p->eq_slider_w > 1 ? p->eq_slider_w : 1;
+    *x = p->eq_group_x;
+    *y = p->eq_group_y;
+    *w = (int16_t)(p->eq_group_w > sw ? p->eq_group_w : sw);   // at least one band
+    *h = (int16_t)(sh + freq_area);
+}
+
+static void load_eq(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_i16 (obj, "eq_info_x",     &p->eq_info_x);
+    load_i16 (obj, "eq_info_y",     &p->eq_info_y);
+    load_font(obj, "eq_info_font",  &p->eq_info_font);
+    load_i16 (obj, "eq_hint_x",     &p->eq_hint_x);
+    load_i16 (obj, "eq_hint_y",     &p->eq_hint_y);
+    load_font(obj, "eq_hint_font",  &p->eq_hint_font);
+    load_bool(obj, "eq_hint_hide",  &p->eq_hint_hide);
+    // Loaded before the conversions below, which derive the slider height from the
+    // frequency strip and so need this font's line height.
+    load_font(obj, "eq_freq_font",  &p->eq_freq_font);
+    load_bool(obj, "eq_freq_hide",  &p->eq_freq_hide);
+    load_i16 (obj, "eq_group_x",    &p->eq_group_x);
+    load_i16 (obj, "eq_group_y",    &p->eq_group_y);
+    load_i16 (obj, "eq_slider_h",   &p->eq_slider_h);
+    load_i16 (obj, "eq_slider_w",   &p->eq_slider_w);
+    load_i16 (obj, "eq_group_w",    &p->eq_group_w);
+    if (p->eq_slider_h < 1) p->eq_slider_h = 1;
+    if (p->eq_slider_w < 1) p->eq_slider_w = 1;
+    load_i16 (obj, "eq_curve_x",    &p->eq_curve_x);
+    load_i16 (obj, "eq_curve_y",    &p->eq_curve_y);
+    load_i16 (obj, "eq_curve_w",    &p->eq_curve_w);
+    load_i16 (obj, "eq_curve_h",    &p->eq_curve_h);
+    if (p->eq_curve_w < 0) p->eq_curve_w = 0;
+    if (p->eq_curve_h < 0) p->eq_curve_h = 0;
+    load_i16 (obj, "eq_knob_w",     &p->eq_knob_w);
+    if (p->eq_knob_w < 0) p->eq_knob_w = 0;
+    load_bool(obj, "eq_knob_only",  &p->eq_knob_only);
+    load_str (obj, "eq_knob_image", p->eq_knob_image, sizeof(p->eq_knob_image));
+    load_str (obj, "eq_wallpaper",  p->eq_wallpaper,  sizeof(p->eq_wallpaper));
+
+    // ── Conversion of older shapes of this section, each lossless (bands land on
+    // the pixels they used to). Knob/font fields are already loaded above, so
+    // everything the conversions need is known here.
+    int sw = p->eq_slider_w > 1 ? p->eq_slider_w : 1;
+    if (cJSON_HasObjectItem(obj, "eq_band_gap")) {
+        // Interim shape: a uniform gap, span = 10 sliders + 9 gaps.
+        int16_t gap = 0;
+        load_i16(obj, "eq_band_gap", &gap);
+        if (gap < 0) gap = 0;
+        p->eq_group_w = (int16_t)(sw * UI_EQ_BANDS + gap * (UI_EQ_BANDS - 1));
+    } else if (cJSON_HasObjectItem(obj, "eq_group_w") &&
+               !cJSON_HasObjectItem(obj, "eq_slider_w")) {
+        // Released shape: eq_group_w was the box width and the band column was
+        // gw / UI_EQ_BANDS, with the slider centred inside its column. The span is
+        // therefore nine columns plus one slider, starting half a gap further in.
+        int pitch = p->eq_group_w / UI_EQ_BANDS;
+        if (pitch < sw) pitch = sw;
+        p->eq_group_w = (int16_t)(pitch * (UI_EQ_BANDS - 1) + sw);
+        p->eq_group_x = (int16_t)(p->eq_group_x + (pitch - sw) / 2);
+        int16_t gh = 0;
+        load_i16(obj, "eq_group_h", &gh);
+        if (gh > 0) {
+            int fh = p->eq_freq_font ? lv_font_get_line_height(p->eq_freq_font) : 0;
+            int sh = gh - (p->eq_freq_hide ? 0 : fh + 6);
+            p->eq_slider_h = (int16_t)(sh > 1 ? sh : 1);
+        }
+    }
+    if (p->eq_group_w < sw) p->eq_group_w = (int16_t)sw;
+}
+
+static cJSON *dump_eq(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_i16 (o, "eq_info_x",     p->eq_info_x);
+    add_i16 (o, "eq_info_y",     p->eq_info_y);
+    add_font(o, "eq_info_font",  p->eq_info_font);
+    add_i16 (o, "eq_hint_x",     p->eq_hint_x);
+    add_i16 (o, "eq_hint_y",     p->eq_hint_y);
+    add_font(o, "eq_hint_font",  p->eq_hint_font);
+    add_bool(o, "eq_hint_hide",  p->eq_hint_hide);
+    // The frequency strip's height is this font's line height + 6, so a client
+    // drawing the group has to know it rather than guess.
+    add_font(o, "eq_freq_font",  p->eq_freq_font);
+    add_bool(o, "eq_freq_hide",  p->eq_freq_hide);
+    // Anchor + span + slider size. The height is not round-tripped: the editor
+    // derives it the same way ui_profile_eq_group_box() does. eq_slider_w doubles
+    // as the marker that this section already speaks the current geometry (see the
+    // conversions in load_eq).
+    add_i16 (o, "eq_group_x",    p->eq_group_x);
+    add_i16 (o, "eq_group_y",    p->eq_group_y);
+    add_i16 (o, "eq_group_w",    p->eq_group_w);
+    add_i16 (o, "eq_slider_h",   p->eq_slider_h);
+    add_i16 (o, "eq_slider_w",   p->eq_slider_w);
+    // The curve box still round-trips its effective w/h so the editor can drag it.
+    int16_t cx, cy, cw, ch;
+    ui_profile_eq_curve_box(p, &cx, &cy, &cw, &ch);
+    add_i16 (o, "eq_curve_x",    cx);
+    add_i16 (o, "eq_curve_y",    cy);
+    add_i16 (o, "eq_curve_w",    cw);
+    add_i16 (o, "eq_curve_h",    ch);
+    add_i16 (o, "eq_knob_w",     p->eq_knob_w);
+    add_bool(o, "eq_knob_only",  p->eq_knob_only);
+    add_str (o, "eq_knob_image", p->eq_knob_image);
+    add_str (o, "eq_wallpaper",  p->eq_wallpaper);
+    return o;
+}
+
+// ── screen_playlist / screen_sd_browser ─────────────────────────────────────
+// Two sections of the same shape, one per list screen, so each can be lined up
+// with its own wallpaper. The geometry rules live in one place below; only the
+// JSON keys are written out per section.
+
+// Stored box, or the auto layout: everything below the header, full width —
+// which is what both screens looked like before the box existed.
+static void list_box_of(int16_t bx, int16_t by, int16_t bw, int16_t bh,
+                        bool header_hide, int16_t header_h,
+                        int16_t *x, int16_t *y, int16_t *w, int16_t *h)
+{
+    if (bw > 0 && bh > 0) {
+        *x = bx; *y = by; *w = bw; *h = bh;
+        return;
+    }
+    int16_t top = header_hide ? 0 : header_h;
+    *x = 0;
+    *y = top;
+    *w = DISPLAY_WIDTH;
+    *h = (int16_t)(DISPLAY_HEIGHT - top);
+}
+
+void ui_profile_playlist_list_box(const ui_profile_t *p,
+                                  int16_t *x, int16_t *y, int16_t *w, int16_t *h)
+{
+    list_box_of(p->playlist_list_x, p->playlist_list_y,
+                p->playlist_list_w, p->playlist_list_h,
+                p->playlist_header_hide, p->playlist_header_h, x, y, w, h);
+}
+
+void ui_profile_browser_list_box(const ui_profile_t *p,
+                                 int16_t *x, int16_t *y, int16_t *w, int16_t *h)
+{
+    list_box_of(p->browser_list_x, p->browser_list_y,
+                p->browser_list_w, p->browser_list_h,
+                p->browser_header_hide, p->browser_header_h, x, y, w, h);
+}
+
+static void load_playlist(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_bool(obj, "playlist_header_hide",  &p->playlist_header_hide);
+    load_i16 (obj, "playlist_header_h",     &p->playlist_header_h);
+    load_bool(obj, "playlist_hint_hide",    &p->playlist_hint_hide);
+    load_i16 (obj, "playlist_list_x",       &p->playlist_list_x);
+    load_i16 (obj, "playlist_list_y",       &p->playlist_list_y);
+    load_i16 (obj, "playlist_list_w",       &p->playlist_list_w);
+    load_i16 (obj, "playlist_list_h",       &p->playlist_list_h);
+    load_i16 (obj, "playlist_item_h",       &p->playlist_item_h);
+    load_i16 (obj, "playlist_item_pad",     &p->playlist_item_pad);
+    load_i16 (obj, "playlist_row_pad_left", &p->playlist_row_pad_left);
+    load_i16 (obj, "playlist_label_bg_opa", &p->playlist_label_bg_opa);
+    load_i16 (obj, "playlist_label_x",      &p->playlist_label_x);
+    load_i16 (obj, "playlist_label_y",      &p->playlist_label_y);
+    load_i16 (obj, "playlist_hint_x",       &p->playlist_hint_x);
+    load_i16 (obj, "playlist_hint_y",       &p->playlist_hint_y);
+    load_u32 (obj, "playlist_row_bg_color",      &p->playlist_row_bg_color);
+    load_u32 (obj, "playlist_row_text_color",    &p->playlist_row_text_color);
+    load_u32 (obj, "playlist_row_accent_color",  &p->playlist_row_accent_color);
+    load_u32 (obj, "playlist_cursor_bg_color",   &p->playlist_cursor_bg_color);
+    load_u32 (obj, "playlist_cursor_text_color", &p->playlist_cursor_text_color);
+    load_font(obj, "playlist_header_font",  &p->playlist_header_font);
+    load_font(obj, "playlist_row_font",     &p->playlist_row_font);
+    load_str (obj, "playlist_wallpaper",    p->playlist_wallpaper, sizeof(p->playlist_wallpaper));
+
+    if (p->playlist_item_h < 4)       p->playlist_item_h = 4;
+    if (p->playlist_item_pad < 0)     p->playlist_item_pad = 0;
+    if (p->playlist_row_pad_left < 0) p->playlist_row_pad_left = 0;
+    if (p->playlist_label_bg_opa < 0)   p->playlist_label_bg_opa = 0;
+    if (p->playlist_label_bg_opa > 100) p->playlist_label_bg_opa = 100;
+    // A zero w/h means "auto" — anything positive must still be a usable box.
+    if (p->playlist_list_w < 0) p->playlist_list_w = 0;
+    if (p->playlist_list_h < 0) p->playlist_list_h = 0;
+#if defined(UI_PROFILE_MONO_128X64)
+    // 16 px yellow band cannot fit the legend; a saved layout must not unhide it.
+    p->playlist_hint_hide = true;
+#endif
+}
+
+static cJSON *dump_playlist(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_bool(o, "playlist_header_hide",  p->playlist_header_hide);
+    add_i16 (o, "playlist_header_h",     p->playlist_header_h);
+    add_bool(o, "playlist_hint_hide",    p->playlist_hint_hide);
+    // The box always round-trips its EFFECTIVE geometry, so the editor can drag
+    // it straight away instead of first having to guess the auto layout.
+    int16_t lx, ly, lw, lh;
+    ui_profile_playlist_list_box(p, &lx, &ly, &lw, &lh);
+    add_i16 (o, "playlist_list_x",       lx);
+    add_i16 (o, "playlist_list_y",       ly);
+    add_i16 (o, "playlist_list_w",       lw);
+    add_i16 (o, "playlist_list_h",       lh);
+    add_i16 (o, "playlist_item_h",       p->playlist_item_h);
+    add_i16 (o, "playlist_item_pad",     p->playlist_item_pad);
+    add_i16 (o, "playlist_row_pad_left", p->playlist_row_pad_left);
+    add_i16 (o, "playlist_label_bg_opa", p->playlist_label_bg_opa);
+    add_i16 (o, "playlist_label_x",      p->playlist_label_x);
+    add_i16 (o, "playlist_label_y",      p->playlist_label_y);
+    add_i16 (o, "playlist_hint_x",       p->playlist_hint_x);
+    add_i16 (o, "playlist_hint_y",       p->playlist_hint_y);
+    add_u32 (o, "playlist_row_bg_color",      p->playlist_row_bg_color);
+    add_u32 (o, "playlist_row_text_color",    p->playlist_row_text_color);
+    add_u32 (o, "playlist_row_accent_color",  p->playlist_row_accent_color);
+    add_u32 (o, "playlist_cursor_bg_color",   p->playlist_cursor_bg_color);
+    add_u32 (o, "playlist_cursor_text_color", p->playlist_cursor_text_color);
+    add_font(o, "playlist_header_font",  p->playlist_header_font);
+    add_font(o, "playlist_row_font",     p->playlist_row_font);
+    add_str (o, "playlist_wallpaper",    p->playlist_wallpaper);
+    return o;
+}
+
+static void load_browser(const cJSON *obj, ui_profile_t *p)
+{
+    if (!cJSON_IsObject(obj)) return;
+    load_bool(obj, "browser_header_hide",  &p->browser_header_hide);
+    load_i16 (obj, "browser_header_h",     &p->browser_header_h);
+    load_bool(obj, "browser_hint_hide",    &p->browser_hint_hide);
+    load_i16 (obj, "browser_list_x",       &p->browser_list_x);
+    load_i16 (obj, "browser_list_y",       &p->browser_list_y);
+    load_i16 (obj, "browser_list_w",       &p->browser_list_w);
+    load_i16 (obj, "browser_list_h",       &p->browser_list_h);
+    load_i16 (obj, "browser_item_h",       &p->browser_item_h);
+    load_i16 (obj, "browser_item_pad",     &p->browser_item_pad);
+    load_i16 (obj, "browser_row_pad_left", &p->browser_row_pad_left);
+    load_i16 (obj, "browser_label_bg_opa", &p->browser_label_bg_opa);
+    load_i16 (obj, "browser_label_x",      &p->browser_label_x);
+    load_i16 (obj, "browser_label_y",      &p->browser_label_y);
+    load_i16 (obj, "browser_hint_x",       &p->browser_hint_x);
+    load_i16 (obj, "browser_hint_y",       &p->browser_hint_y);
+    load_u32 (obj, "browser_row_bg_color",      &p->browser_row_bg_color);
+    load_u32 (obj, "browser_row_text_color",    &p->browser_row_text_color);
+    load_u32 (obj, "browser_row_accent_color",  &p->browser_row_accent_color);
+    load_u32 (obj, "browser_cursor_bg_color",   &p->browser_cursor_bg_color);
+    load_u32 (obj, "browser_cursor_text_color", &p->browser_cursor_text_color);
+    load_font(obj, "browser_header_font",  &p->browser_header_font);
+    load_font(obj, "browser_row_font",     &p->browser_row_font);
+    load_str (obj, "browser_wallpaper",    p->browser_wallpaper, sizeof(p->browser_wallpaper));
+
+    if (p->browser_item_h < 4)       p->browser_item_h = 4;
+    if (p->browser_item_pad < 0)     p->browser_item_pad = 0;
+    if (p->browser_row_pad_left < 0) p->browser_row_pad_left = 0;
+    if (p->browser_label_bg_opa < 0)   p->browser_label_bg_opa = 0;
+    if (p->browser_label_bg_opa > 100) p->browser_label_bg_opa = 100;
+    if (p->browser_list_w < 0) p->browser_list_w = 0;
+    if (p->browser_list_h < 0) p->browser_list_h = 0;
+#if defined(UI_PROFILE_MONO_128X64)
+    p->browser_hint_hide = true;
+#endif
+}
+
+static cJSON *dump_browser(const ui_profile_t *p)
+{
+    cJSON *o = cJSON_CreateObject();
+    add_bool(o, "browser_header_hide",  p->browser_header_hide);
+    add_i16 (o, "browser_header_h",     p->browser_header_h);
+    add_bool(o, "browser_hint_hide",    p->browser_hint_hide);
+    int16_t lx, ly, lw, lh;   // effective box — see dump_playlist
+    ui_profile_browser_list_box(p, &lx, &ly, &lw, &lh);
+    add_i16 (o, "browser_list_x",       lx);
+    add_i16 (o, "browser_list_y",       ly);
+    add_i16 (o, "browser_list_w",       lw);
+    add_i16 (o, "browser_list_h",       lh);
+    add_i16 (o, "browser_item_h",       p->browser_item_h);
+    add_i16 (o, "browser_item_pad",     p->browser_item_pad);
+    add_i16 (o, "browser_row_pad_left", p->browser_row_pad_left);
+    add_i16 (o, "browser_label_bg_opa", p->browser_label_bg_opa);
+    add_i16 (o, "browser_label_x",      p->browser_label_x);
+    add_i16 (o, "browser_label_y",      p->browser_label_y);
+    add_i16 (o, "browser_hint_x",       p->browser_hint_x);
+    add_i16 (o, "browser_hint_y",       p->browser_hint_y);
+    add_u32 (o, "browser_row_bg_color",      p->browser_row_bg_color);
+    add_u32 (o, "browser_row_text_color",    p->browser_row_text_color);
+    add_u32 (o, "browser_row_accent_color",  p->browser_row_accent_color);
+    add_u32 (o, "browser_cursor_bg_color",   p->browser_cursor_bg_color);
+    add_u32 (o, "browser_cursor_text_color", p->browser_cursor_text_color);
+    add_font(o, "browser_header_font",  p->browser_header_font);
+    add_font(o, "browser_row_font",     p->browser_row_font);
+    add_str (o, "browser_wallpaper",    p->browser_wallpaper);
+    return o;
+}
+
+// ── I/O ─────────────────────────────────────────────────────────────────────
+
+esp_err_t ui_profile_load_from_file(void)
+{
+    // Defaults first — missing JSON fields won't leave zeros.
+    ui_profile_reset();
+
+    FILE *f = fopen(UI_PROFILE_FILE, "r");
+    if (!f) {
+        ESP_LOGI(TAG, "%s missing — using defaults", UI_PROFILE_FILE);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+    if (size <= 0 || size > 16384) {
+        fclose(f);
+        ESP_LOGW(TAG, "%s invalid size: %ld", UI_PROFILE_FILE, size);
+        return ESP_FAIL;
+    }
+
+    char *buf = malloc(size + 1);
+    if (!buf) {
+        fclose(f);
+        return ESP_ERR_NO_MEM;
+    }
+    fread(buf, 1, size, f);
+    buf[size] = 0;
+    fclose(f);
+
+    cJSON *json = cJSON_Parse(buf);
+    free(buf);
+    if (!json) {
+        ESP_LOGW(TAG, "%s parse error — using defaults", UI_PROFILE_FILE);
+        return ESP_FAIL;
+    }
+
+    // Reject a layout saved for a different panel size: the overrides are
+    // absolute pixel coords, so a 256x64 file on a 480x320 build would scatter
+    // the widgets. Apply only when the stamped dimensions match the compiled
+    // profile (a file without w/h is treated as a mismatch — re-save to stamp).
+    cJSON *jw = cJSON_GetObjectItem(json, "w");
+    cJSON *jh = cJSON_GetObjectItem(json, "h");
+    int file_w = cJSON_IsNumber(jw) ? jw->valueint : 0;
+    int file_h = cJSON_IsNumber(jh) ? jh->valueint : 0;
+    if (file_w != DISPLAY_WIDTH || file_h != DISPLAY_HEIGHT) {
+        ESP_LOGW(TAG, "%s is for %dx%d, firmware is %dx%d — ignoring overrides, using defaults",
+                 UI_PROFILE_FILE, file_w, file_h, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+        cJSON_Delete(json);
+        return ESP_OK;   // runtime already holds defaults from ui_profile_reset()
+    }
+
+    load_clock(cJSON_GetObjectItem(json, "clock"), &s_runtime);
+    load_bt   (cJSON_GetObjectItem(json, "bt"),    &s_runtime);
+    load_radio(cJSON_GetObjectItem(json, "radio"), &s_runtime);
+    load_sd   (cJSON_GetObjectItem(json, "sd"),    &s_runtime);
+    load_eq   (cJSON_GetObjectItem(json, "eq"),    &s_runtime);
+    load_playlist(cJSON_GetObjectItem(json, "playlist"), &s_runtime);
+    load_browser (cJSON_GetObjectItem(json, "browser"),  &s_runtime);
+    // (other sections will land here when exposed in the UI: events, wifi, ...)
+
+    cJSON_Delete(json);
+    ESP_LOGI(TAG, "%s loaded", UI_PROFILE_FILE);
+    return ESP_OK;
+}
+
+// ── public per-section helpers ──────────────────────────────────────────────
+
+void *ui_profile_dump_clock(void)
+{
+    ensure_initialized();
+    return dump_clock(&s_runtime);
+}
+
+void ui_profile_patch_clock(const void *obj)
+{
+    ensure_initialized();
+    load_clock((const cJSON *)obj, &s_runtime);
+}
+
+void *ui_profile_dump_bt(void)
+{
+    ensure_initialized();
+    return dump_bt(&s_runtime);
+}
+
+void ui_profile_patch_bt(const void *obj)
+{
+    ensure_initialized();
+    load_bt((const cJSON *)obj, &s_runtime);
+}
+
+void *ui_profile_dump_radio(void)
+{
+    ensure_initialized();
+    return dump_radio(&s_runtime);
+}
+
+void ui_profile_patch_radio(const void *obj)
+{
+    ensure_initialized();
+    load_radio((const cJSON *)obj, &s_runtime);
+}
+
+void *ui_profile_dump_sd(void)
+{
+    ensure_initialized();
+    return dump_sd(&s_runtime);
+}
+
+void ui_profile_patch_sd(const void *obj)
+{
+    ensure_initialized();
+    load_sd((const cJSON *)obj, &s_runtime);
+}
+
+void *ui_profile_dump_eq(void)
+{
+    ensure_initialized();
+    return dump_eq(&s_runtime);
+}
+
+void ui_profile_patch_eq(const void *obj)
+{
+    ensure_initialized();
+    load_eq((const cJSON *)obj, &s_runtime);
+}
+
+void *ui_profile_dump_playlist(void)
+{
+    ensure_initialized();
+    return dump_playlist(&s_runtime);
+}
+
+void ui_profile_patch_playlist(const void *obj)
+{
+    ensure_initialized();
+    load_playlist((const cJSON *)obj, &s_runtime);
+}
+
+void *ui_profile_dump_browser(void)
+{
+    ensure_initialized();
+    return dump_browser(&s_runtime);
+}
+
+void ui_profile_patch_browser(const void *obj)
+{
+    ensure_initialized();
+    load_browser((const cJSON *)obj, &s_runtime);
+}
+
+esp_err_t ui_profile_save_to_file(void)
+{
+    ensure_initialized();
+
+    cJSON *json = cJSON_CreateObject();
+    // Stamp the panel size so load can reject a file saved for a different LCD
+    // (see ui_profile_load_from_file).
+    cJSON_AddNumberToObject(json, "w", DISPLAY_WIDTH);
+    cJSON_AddNumberToObject(json, "h", DISPLAY_HEIGHT);
+    cJSON_AddItemToObject(json, "clock", dump_clock(&s_runtime));
+    cJSON_AddItemToObject(json, "bt",    dump_bt   (&s_runtime));
+    cJSON_AddItemToObject(json, "radio", dump_radio(&s_runtime));
+    cJSON_AddItemToObject(json, "sd",    dump_sd   (&s_runtime));
+    cJSON_AddItemToObject(json, "eq",    dump_eq   (&s_runtime));
+    cJSON_AddItemToObject(json, "playlist", dump_playlist(&s_runtime));
+    cJSON_AddItemToObject(json, "browser",  dump_browser (&s_runtime));
+
+    char *str = cJSON_PrintUnformatted(json);
+    cJSON_Delete(json);
+    if (!str) return ESP_ERR_NO_MEM;
+
+    FILE *f = fopen(UI_PROFILE_FILE, "w");
+    if (!f) {
+        free(str);
+        return ESP_FAIL;
+    }
+    fwrite(str, 1, strlen(str), f);
+    fclose(f);
+    free(str);
+
+    ESP_LOGI(TAG, "%s saved", UI_PROFILE_FILE);
+    return ESP_OK;
+}

@@ -1,0 +1,104 @@
+name: Build firmware
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    name: Build (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [ili9341-ft6336u, st7796-ft6336u, ili9488-ft6336u, co5300-cst816d, ssd1322,
+                  ili9341-xpt2046, st7789v-xpt2046, st7796-xpt2046, ili9488-xpt2046]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone ESP-ADF v2.8
+        run: |
+          git clone --branch v2.8 --depth 1 \
+              https://github.com/espressif/esp-adf.git esp-adf
+
+      - name: Build firmware
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.4
+          target: esp32s3
+          path: '.'
+          command: |
+            set -euo pipefail
+            # ci/build.py is the release/CI builder: it selects the variant,
+            # patches ESP-ADF/IDF, compresses the web UI, builds, and merges the
+            # image. --no-clean: the CI checkout is always fresh.
+            python ci/build.py ${{ matrix.variant }} --adf-path "$PWD/esp-adf" --no-clean
+            echo "--- Looking for merged binary ---"
+            ls -la "build/AtlasCube-${{ matrix.variant }}.bin"
+            # App-only image for web-push OTA (Settings -> Tools): the same app
+            # partition the merged .bin carries, without bootloader/parttable/www/config.
+            cp "build/atlascube.bin" "build/AtlasCube-${{ matrix.variant }}-ota.bin"
+            ls -la "build/AtlasCube-${{ matrix.variant }}-ota.bin"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AtlasCube-${{ matrix.variant }}
+          path: |
+            build/AtlasCube-${{ matrix.variant }}.bin
+            build/AtlasCube-${{ matrix.variant }}-ota.bin
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stamp www version
+        # Recompute www_version.txt from the current sources so the recovery zip
+        # always matches the hash baked into the firmware (the build job computes
+        # it the same way). This makes the committed value irrelevant to CI: a
+        # stale checked-in stamp can't desync the /setup re-upload path.
+        run: python3 spiffs_image/tools/compress_web.py
+
+      - name: Package web UI files
+        run: |
+          # Variant-independent: the web UI is identical across builds. Ship the
+          # raw www/ tree (incl. www_version.txt) so a user can recover the web UI
+          # after an app-only OTA via the /setup uploader. Files sit at the zip
+          # root so they can be selected directly after extracting.
+          ( cd spiffs_image/www && zip -r "$GITHUB_WORKSPACE/AtlasCube-www.zip" . )
+          ls -la "$GITHUB_WORKSPACE/AtlasCube-www.zip"
+          # Compressed web/ set — byte-for-byte what CMake flashes to the www
+          # partition (pre-gzipped assets, ?v= cache-bust stamps, www_version.txt).
+          # For the planned on-device www pull: the device can store these files
+          # as-is, no on-device recompression. Built by the stamp step above.
+          ( cd spiffs_image/web && zip -r "$GITHUB_WORKSPACE/AtlasCube-web.zip" . )
+          ls -la "$GITHUB_WORKSPACE/AtlasCube-web.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            artifacts/*/AtlasCube-*.bin \
+            AtlasCube-www.zip \
+            AtlasCube-web.zip

@@ -1,0 +1,256 @@
+#include "app_state.h"
+#include "theme.h"
+#include "esp_log.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+static app_state_cb_t s_cbs[APP_STATE_MAX_SUBSCRIBERS];
+static int s_cb_count = 0;
+
+static app_state_t s_state;
+// static app_state_cb_t s_cb = NULL;
+
+void app_state_init(void)
+{
+    memset(&s_state, 0, sizeof(s_state));
+}
+
+app_state_t* app_state_get(void)
+{
+    return &s_state;
+}
+
+void app_state_subscribe(app_state_cb_t cb)
+{
+    if (s_cb_count < APP_STATE_MAX_SUBSCRIBERS) {
+        s_cbs[s_cb_count++] = cb;
+    } else {
+        ESP_LOGE("STATE", "Too many subscribers!");
+    }
+}
+
+static void notify(void)
+{
+    for (int i = 0; i < s_cb_count; i++) {
+        if (s_cbs[i]) s_cbs[i]();
+    }
+}
+
+// Log-line appender: snprintf returns the length that *would* have been
+// written, so a plain `n += snprintf(...)` can push the offset past the buffer
+// once a long field (e.g. url) truncates — then `size - n` underflows and the
+// next call writes out of bounds. Returns the new offset, clamped to size-1.
+static int buf_append(char *buf, size_t size, int n, const char *fmt, ...)
+{
+    if (n < 0 || (size_t)n >= size - 1) return (int)size - 1;
+    va_list ap;
+    va_start(ap, fmt);
+    int r = vsnprintf(buf + n, size - n, fmt, ap);
+    va_end(ap);
+    if (r < 0) return n;
+    n += r;
+    if ((size_t)n > size - 1) n = (int)size - 1;
+    return n;
+}
+
+void app_state_update(const app_state_patch_t *patch)
+{
+    if (!patch) return;
+
+    if (patch->has_radio) {
+        s_state.radio_state = patch->radio_state;
+    }
+
+    if (patch->has_bt_enable) {
+        s_state.bt_enable = patch->bt_enable;
+    }
+
+    if (patch->has_bt_show_screen) {
+        s_state.bt_show_screen = patch->bt_show_screen;
+    }
+
+    if (patch->has_bt_auto_switch) {
+        s_state.bt_auto_switch = patch->bt_auto_switch;
+    }
+
+    if (patch->has_bt_state) {
+        s_state.bt_state = patch->bt_state;
+    }
+
+    if (patch->has_bt_playing) {
+        s_state.bt_playing = patch->bt_playing;
+    }
+
+    if (patch->has_bt_volume) {
+        s_state.bt_volume = patch->bt_volume;
+    }
+
+    if (patch->has_bt_vol_sync) {
+        s_state.bt_vol_sync = patch->bt_vol_sync;
+    }
+
+    if (patch->has_bt_title && patch->bt_title) {
+        strncpy(s_state.bt_title, patch->bt_title, sizeof(s_state.bt_title) - 1);
+        s_state.bt_title[sizeof(s_state.bt_title) - 1] = 0;
+    }
+
+    if (patch->has_bt_artist && patch->bt_artist) {
+        strncpy(s_state.bt_artist, patch->bt_artist, sizeof(s_state.bt_artist) - 1);
+        s_state.bt_artist[sizeof(s_state.bt_artist) - 1] = 0;
+    }
+
+    if (patch->has_bt_duration_ms) {
+        s_state.bt_duration_ms = patch->bt_duration_ms;
+    }
+
+    if (patch->has_bt_position_s) {
+        s_state.bt_position_s = patch->bt_position_s;
+    }
+
+    if (patch->has_bt_codec && patch->bt_codec) {
+        strncpy(s_state.bt_codec, patch->bt_codec, sizeof(s_state.bt_codec) - 1);
+        s_state.bt_codec[sizeof(s_state.bt_codec) - 1] = 0;
+    }
+
+    if (patch->has_bt_sample_rate) {
+        s_state.bt_sample_rate = patch->bt_sample_rate;
+    }
+
+    if (patch->has_bt_bits) {
+        s_state.bt_bits = patch->bt_bits;
+    }
+
+    if (patch->has_volume) {
+        s_state.volume = patch->volume;
+    }
+
+    if (patch->has_eq) {
+        memcpy(s_state.eq, patch->eq, sizeof(s_state.eq));
+    }
+
+    if (patch->has_eq_enabled) {
+        s_state.eq_enabled = patch->eq_enabled;
+    }
+
+    if (patch->has_mono) {
+        s_state.mono = patch->mono;
+    }
+
+    if (patch->has_volume_log) {
+        s_state.volume_log = patch->volume_log;
+    }
+
+    if (patch->has_url && patch->url) {
+        strncpy(s_state.url, patch->url, sizeof(s_state.url) - 1);
+        s_state.url[sizeof(s_state.url) - 1] = 0;
+    }
+
+    if (patch->has_station_name && patch->station_name) {
+        strncpy(s_state.station_name, patch->station_name, sizeof(s_state.station_name) - 1);
+        s_state.station_name[sizeof(s_state.station_name) - 1] = 0;
+    }
+
+    if (patch->has_title && patch->title) {
+        strncpy(s_state.title, patch->title, sizeof(s_state.title) - 1);
+        s_state.title[sizeof(s_state.title) - 1] = 0;
+    }
+
+    if(patch->has_curr_index) {
+        s_state.curr_index = patch->curr_index;
+    }
+
+    if (patch->has_audio_info) {
+        s_state.sample_rate = patch->sample_rate;
+        s_state.bits = patch->bits;
+        s_state.channels = patch->channels;
+        s_state.bitrate = patch->bitrate;
+        s_state.codec_fmt = patch->codec_fmt;
+    }
+
+    if (patch->has_time_synced) s_state.time_synced = patch->time_synced;
+
+    if(patch->has_screen) s_state.screen = patch->screen;
+
+    if(patch->has_display_brightness) s_state.brightness = patch->display_brightness;
+
+    if (patch->has_theme) {
+        s_state.theme = patch->theme;
+        theme_set(patch->theme);
+    }
+
+    if (patch->has_bg_gradient) s_state.bg_gradient = patch->bg_gradient;
+    if (patch->has_wallpaper_on) s_state.wallpaper_on = patch->wallpaper_on;
+
+    if (patch->has_scrsaver_delay)      s_state.scrsaver_delay      = patch->scrsaver_delay;
+    if (patch->has_scrsaver_id)         s_state.scrsaver_id         = patch->scrsaver_id;
+    if (patch->has_scrsaver_block_play) s_state.scrsaver_block_play = patch->scrsaver_block_play;
+
+    if (patch->has_sd_active) s_state.sd_active = patch->sd_active;
+    if (patch->has_sd_index)  s_state.sd_index  = patch->sd_index;
+    if (patch->has_sd_count)  s_state.sd_count  = patch->sd_count;
+    if (patch->has_sd_track && patch->sd_track) {
+        strncpy(s_state.sd_track, patch->sd_track, sizeof(s_state.sd_track) - 1);
+        s_state.sd_track[sizeof(s_state.sd_track) - 1] = 0;
+    }
+    if (patch->has_sd_dir && patch->sd_dir) {
+        strncpy(s_state.sd_dir, patch->sd_dir, sizeof(s_state.sd_dir) - 1);
+        s_state.sd_dir[sizeof(s_state.sd_dir) - 1] = 0;
+    }
+    if (patch->has_sd_paused)  s_state.sd_paused  = patch->sd_paused;
+    if (patch->has_sd_shuffle) s_state.sd_shuffle = patch->sd_shuffle;
+    if (patch->has_sd_repeat)  s_state.sd_repeat  = patch->sd_repeat;
+    if (patch->has_sd_show_screen) s_state.sd_show_screen = patch->sd_show_screen;
+    if (patch->has_radio_show_screen) s_state.radio_show_screen = patch->radio_show_screen;
+    if (patch->has_follow_source)  s_state.follow_source  = patch->follow_source;
+
+    notify();
+
+    char buf[256];
+    int n = 0;
+    if (patch->has_radio)             n = buf_append(buf, sizeof(buf), n, " radio=%d", s_state.radio_state);
+    if (patch->has_screen)            n = buf_append(buf, sizeof(buf), n, " screen=%d", s_state.screen);
+    if (patch->has_display_brightness) n = buf_append(buf, sizeof(buf), n, " brightness=%d", s_state.brightness);
+    if (patch->has_bt_enable)         n = buf_append(buf, sizeof(buf), n, " bt_enable=%d", s_state.bt_enable);
+    if (patch->has_bt_auto_switch)    n = buf_append(buf, sizeof(buf), n, " bt_auto_switch=%d", s_state.bt_auto_switch);
+    if (patch->has_bt_state)          n = buf_append(buf, sizeof(buf), n, " bt_connected=%d", s_state.bt_state);
+    if (patch->has_bt_playing)        n = buf_append(buf, sizeof(buf), n, " bt_playing=%d", s_state.bt_playing);
+    if (patch->has_bt_volume)         n = buf_append(buf, sizeof(buf), n, " bt_volume=%d", s_state.bt_volume);
+    if (patch->has_bt_vol_sync)       n = buf_append(buf, sizeof(buf), n, " bt_vol_sync=%d", s_state.bt_vol_sync);
+    if (patch->has_bt_title)          n = buf_append(buf, sizeof(buf), n, " bt_title=%s", s_state.bt_title);
+    if (patch->has_bt_artist)         n = buf_append(buf, sizeof(buf), n, " bt_artist=%s", s_state.bt_artist);
+    if (patch->has_bt_duration_ms)    n = buf_append(buf, sizeof(buf), n, " bt_duration=%dms", s_state.bt_duration_ms);
+    if (patch->has_bt_position_s)     n = buf_append(buf, sizeof(buf), n, " bt_pos=%ds", s_state.bt_position_s);
+    if (patch->has_bt_codec)          n = buf_append(buf, sizeof(buf), n, " bt_codec=%s", s_state.bt_codec);
+    if (patch->has_bt_sample_rate)    n = buf_append(buf, sizeof(buf), n, " bt_sr=%d", s_state.bt_sample_rate);
+    if (patch->has_bt_bits)           n = buf_append(buf, sizeof(buf), n, " bt_bits=%d", s_state.bt_bits);
+    if (patch->has_volume)            n = buf_append(buf, sizeof(buf), n, " volume=%d", s_state.volume);
+    if (patch->has_eq)                n = buf_append(buf, sizeof(buf), n, " eq=*");
+    if (patch->has_eq_enabled)        n = buf_append(buf, sizeof(buf), n, " eq_enabled=%d", s_state.eq_enabled);
+    if (patch->has_mono)              n = buf_append(buf, sizeof(buf), n, " mono=%d", s_state.mono);
+    if (patch->has_volume_log)        n = buf_append(buf, sizeof(buf), n, " volume_log=%d", s_state.volume_log);
+    if (patch->has_curr_index)        n = buf_append(buf, sizeof(buf), n, " curr_index=%d", s_state.curr_index);
+    if (patch->has_url)               n = buf_append(buf, sizeof(buf), n, " url=%s", s_state.url);
+    if (patch->has_station_name)      n = buf_append(buf, sizeof(buf), n, " station=%s", s_state.station_name);
+    if (patch->has_title)             n = buf_append(buf, sizeof(buf), n, " title=%s", s_state.title);
+    if (patch->has_audio_info)        n = buf_append(buf, sizeof(buf), n, " audio=%luHz/%db/%dch/%lubps/fmt%d",
+                                                    (unsigned long)s_state.sample_rate, s_state.bits, s_state.channels,
+                                                    (unsigned long)s_state.bitrate, s_state.codec_fmt);
+    if (patch->has_time_synced)       n = buf_append(buf, sizeof(buf), n, " time_synced=%d", s_state.time_synced);
+    if (patch->has_theme)             n = buf_append(buf, sizeof(buf), n, " theme=%d", s_state.theme);
+    if (patch->has_bg_gradient)       n = buf_append(buf, sizeof(buf), n, " bg_gradient=%d", s_state.bg_gradient);
+    if (patch->has_wallpaper_on)      n = buf_append(buf, sizeof(buf), n, " wallpaper_on=%d", s_state.wallpaper_on);
+    if (patch->has_scrsaver_delay)    n = buf_append(buf, sizeof(buf), n, " scrsaver_delay=%d", s_state.scrsaver_delay);
+    if (patch->has_scrsaver_id)       n = buf_append(buf, sizeof(buf), n, " scrsaver_id=%d", s_state.scrsaver_id);
+    if (patch->has_scrsaver_block_play) n = buf_append(buf, sizeof(buf), n, " scrsaver_block_play=%d", s_state.scrsaver_block_play);
+    if (patch->has_sd_active)         n = buf_append(buf, sizeof(buf), n, " sd_active=%d", s_state.sd_active);
+    if (patch->has_sd_index)          n = buf_append(buf, sizeof(buf), n, " sd_index=%d", s_state.sd_index);
+    if (patch->has_sd_count)          n = buf_append(buf, sizeof(buf), n, " sd_count=%d", s_state.sd_count);
+    if (patch->has_sd_track)          n = buf_append(buf, sizeof(buf), n, " sd_track=%s", s_state.sd_track);
+    if (patch->has_sd_show_screen)    n = buf_append(buf, sizeof(buf), n, " sd_show_screen=%d", s_state.sd_show_screen);
+    if (patch->has_follow_source)     n = buf_append(buf, sizeof(buf), n, " follow_source=%d", s_state.follow_source);
+
+    if (n > 0) {
+        ESP_LOGI("STATE", "Updated:%s", buf);
+    }
+}

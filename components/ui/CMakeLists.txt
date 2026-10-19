@@ -1,0 +1,78 @@
+set(UI_SRCS
+    "ui_manager.c"
+    "ui_nav.c"
+    "ui_profile.c"
+    "ui_background.c"
+    "lv_bin_image.c"
+    "ui_asset.c"
+    "ui_label.c"
+    "ui_timefmt.c"
+    "ui_swipe.c"
+    "screens/screen_splash.c"
+    "screens/img_atlas_logo.c"
+    "screens/screen_radio.c"
+    "screens/screen_playlist.c"
+    "screens/screen_sd_player.c"
+    "screens/screen_sd_browser.c"
+    "screens/screen_home.c"
+    "screens/screen_wifi_ap.c"
+    "screens/screen_settings.c"
+    "screens/screen_equalizer.c"
+    "screens/screen_events.c"
+    "screens/screen_event_notification.c"
+    "screens/screen_mqtt.c"
+    "screens/screen_ota.c"
+    "screens/screen_update.c"
+    "screens/screen_diag.c"
+    "screensavers/screensaver_clockdigital.c"
+    "screensavers/screensaver_mqtt.c"
+    "screensavers/screensaver_blank.c"
+    "screensavers/screensavers.c"
+    "widgets/ui_list_widget.c"
+    "widgets/clock_widget.c"
+    "widgets/now_playing_widget.c"
+    "widgets/mode_indicator_widget.c"
+    "widgets/event_indicator_widget.c"
+    "widgets/controls_overlay_widget.c"
+    "widgets/control_action.c"
+    "widgets/touch_hotspots_widget.c"
+    "widgets/vol_overlay_widget.c"
+    "widgets/vol_slider_widget.c"
+    "widgets/net_fetch_overlay_widget.c"
+    "fonts/lv_font_montserrat_12_eu.c"
+    "fonts/ui_fonts.c"
+)
+
+set(UI_REQUIRES
+    lvgl
+    audio
+    driver
+    app_state
+    services
+    playlist
+    settings_ex
+    network
+    events
+    diag
+    json
+    esp_http_client
+    esp-tls
+    buzzer
+    mqtt_svc
+    sdcard
+    bt_module
+    esp_app_format
+    updater
+    net_wallpaper
+    weather
+)
+
+idf_component_register(
+    SRCS ${UI_SRCS}
+    INCLUDE_DIRS
+        "."
+        "screens"
+        "screensavers"
+        "widgets"
+    REQUIRES ${UI_REQUIRES}
+)

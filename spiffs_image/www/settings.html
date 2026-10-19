@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AtlasCube – Settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="logo">
+        <span class="logo-icon">◈</span>
+        <div class="logo-stack">
+            <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+            <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+        </div>
+    </div>
+</header>
+
+<main class="card">
+    <a href="/index.html" class="back-link">← Back to Radio</a>
+
+    <!-- Tab navigation -->
+    <nav class="tab-nav" id="settingsTabNav" role="tablist">
+        <button type="button" class="tab-btn" data-tab="display"     onclick="selectTab('display')">🖥️ Display</button>
+        <button type="button" class="tab-btn" data-tab="night"       onclick="selectTab('night')">🔅 Dim &amp; Wake</button>
+        <button type="button" class="tab-btn" data-tab="screensaver" onclick="selectTab('screensaver')">🌀 Screensaver</button>
+        <button type="button" class="tab-btn" data-tab="audio"       onclick="selectTab('audio')">🎚️ Audio</button>
+        <button type="button" class="tab-btn" data-tab="wifi"        onclick="selectTab('wifi')">🌐 Network</button>
+        <button type="button" class="tab-btn" data-tab="datetime"    onclick="selectTab('datetime')">🕐 Date &amp; Time</button>
+        <button type="button" class="tab-btn" data-tab="mqtt"        onclick="selectTab('mqtt')">📨 MQTT</button>
+        <button type="button" class="tab-btn" data-tab="weather"     onclick="selectTab('weather')">🌦️ Weather</button>
+        <button type="button" class="tab-btn" data-tab="tools"       onclick="selectTab('tools')">🛠️ Tools</button>
+        <button type="button" class="tab-btn" data-tab="diag"        onclick="selectTab('diag')">🩺 Diagnostics</button>
+        <button type="button" class="tab-btn" data-tab="system"      onclick="selectTab('system')">⚙️ System</button>
+    </nav>
+
+    <!-- ══════════════════════════════════════════
+         Display (panel options + theme/palettes + wallpapers)
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-display" data-tab="display">
+        <nav class="tab-nav" id="displaySubNav" role="tablist">
+            <button type="button" class="tab-btn" data-sub="panel" onclick="selectDisplaySub('panel')">🖥️ Panel</button>
+            <button type="button" class="tab-btn" data-sub="theme" onclick="selectDisplaySub('theme')">🎨 Theme</button>
+        </nav>
+
+        <div class="sub-pane" data-sub="panel">
+        <div class="panel">
+            <div class="panel-label">SHOW DEVICE SCREEN</div>
+            <div class="screen-switcher">
+                <button onclick="setScreen('clock')">🕐 Clock</button>
+                <button onclick="setScreen('radio')">📻 Radio</button>
+                <button onclick="setScreen('sd')">💾 SD</button>
+                <button onclick="setScreen('bt')">🔵 BT</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="slider-row">
+                <span class="slider-label">☀️ Brightness</span>
+                <span id="disp_bright_value" class="slider-value">80</span>
+            </div>
+            <input type="range" min="0" max="100" value="80"
+                    id="disp_bright_slider" oninput="setDisplayBrightness(this.value)" />
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Screen layout editor</label>
+            <div class="field-hint">Position and toggle the elements of each device screen (clock, labels, widgets) with a live preview.</div>
+            <a href="/layout.html" class="tool-btn tool-link" style="width:fit-content;padding:8px 14px">🖼️ Open Layout Editor</a>
+        </div>
+
+        <div class="panel">
+            <div class="panel-label">PANEL OPTIONS</div>
+            <div class="field-group">
+                <label class="field-label">Flip display 180°</label>
+                <div class="field-hint">Rotate the whole screen upside-down (for inverted mounting). Applies instantly.</div>
+                <div class="theme-toggle uniform" id="flipToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnFlipOn"  onclick="setFlip(true)">🔄 Flipped</button>
+                    <button class="theme-btn" id="settingsBtnFlipOff" onclick="setFlip(false)">⬆️ Normal</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Touch orientation</label>
+                <div class="field-hint">Fixes a touch layer mounted differently than the panel — taps landing mirrored or on the wrong axis. Independent of the display flip above, so rotating the image no longer rotates the touch. Change one at a time and tap to check; all three off = panel default.</div>
+                <div class="theme-toggle uniform" id="touchSwapToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnTouchSwapOn"  onclick="setTouchOrient('touch_swap_xy', true)">🔀 Swap X/Y</button>
+                    <button class="theme-btn" id="settingsBtnTouchSwapOff" onclick="setTouchOrient('touch_swap_xy', false)">➡️ Normal</button>
+                </div>
+                <div class="theme-toggle uniform" id="touchInvXToggle" style="width:fit-content;margin-top:6px">
+                    <button class="theme-btn" id="settingsBtnTouchInvXOn"  onclick="setTouchOrient('touch_invert_x', true)">↔️ Invert X</button>
+                    <button class="theme-btn" id="settingsBtnTouchInvXOff" onclick="setTouchOrient('touch_invert_x', false)">➡️ Normal</button>
+                </div>
+                <div class="theme-toggle uniform" id="touchInvYToggle" style="width:fit-content;margin-top:6px">
+                    <button class="theme-btn" id="settingsBtnTouchInvYOn"  onclick="setTouchOrient('touch_invert_y', true)">↕️ Invert Y</button>
+                    <button class="theme-btn" id="settingsBtnTouchInvYOff" onclick="setTouchOrient('touch_invert_y', false)">⬆️ Normal</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Invert colours</label>
+                <div class="field-hint">Fixes panels that show inverted colours (e.g. yellow appears blue). Applies instantly — flip this if the colours look wrong.</div>
+                <div class="theme-toggle uniform" id="invertToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnInvertOn"  onclick="setInvert(true)">🌗 Inverted</button>
+                    <button class="theme-btn" id="settingsBtnInvertOff" onclick="setInvert(false)">🎨 Normal</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Swap red/blue</label>
+                <div class="field-hint">Fixes panels wired in the opposite channel order — red shows as blue, blue as orange, while green stays correct. Independent of <em>Invert colours</em> above, which affects all three channels. Applies instantly. No effect on the AMOLED and mono panels.</div>
+                <div class="theme-toggle uniform" id="bgrToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnBgrOn"  onclick="setBgr(true)">🔵 Swapped</button>
+                    <button class="theme-btn" id="settingsBtnBgrOff" onclick="setBgr(false)">🎨 Normal</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">FPS overlay</label>
+                <div class="field-hint">Show LVGL's on-screen FPS + CPU% counter (bottom-right). Applies instantly.</div>
+                <div class="theme-toggle uniform" id="fpsToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnFpsOn"  onclick="setShowFps(true)">📊 Show</button>
+                    <button class="theme-btn" id="settingsBtnFpsOff" onclick="setShowFps(false)">🚫 Hide</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-label">VISIBLE SCREENS</div>
+            <div class="field-hint">Hidden screens are skipped when cycling screens on the device.</div>
+            <div class="field-group">
+                <label class="field-label">Radio screen</label>
+                <div class="theme-toggle wide" id="radioScreenToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnRadioShow" onclick="setDeviceRadioScreen(true)">✅ Show</button>
+                    <button class="theme-btn" id="settingsBtnRadioHide" onclick="setDeviceRadioScreen(false)">❌ Hide</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">SD player screen</label>
+                <div class="theme-toggle wide" id="sdScreenToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnSDshow" onclick="setDeviceSDScreen(true)">✅ Show</button>
+                    <button class="theme-btn" id="settingsBtnSDhide" onclick="setDeviceSDScreen(false)">❌ Hide</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Bluetooth screen</label>
+                <div class="theme-toggle wide" id="btScreenToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnBTshow" onclick="setDeviceBTScreen(true)">✅ Show</button>
+                    <button class="theme-btn" id="settingsBtnBThide" onclick="setDeviceBTScreen(false)">❌ Hide</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Follow the playing source</label>
+                <div class="field-hint">When a source starts playing, the device jumps to its screen (radio, SD player or Bluetooth). Hidden screens are never shown, and screens outside the cycle (settings, pickers) are never interrupted.</div>
+                <div class="theme-toggle wide" id="followSourceToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnFollowOn"  onclick="setDeviceFollowSource(true)">✅ On</button>
+                    <button class="theme-btn" id="settingsBtnFollowOff" onclick="setDeviceFollowSource(false)">🚫 Off</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-label">BOOT &amp; SPLASH</div>
+            <div class="field-group">
+                <label class="field-label">Boot info on splash (version + IP, STA only)</label>
+                <div class="theme-toggle" id="bootInfoToggle" style="width:fit-content">
+                    <button class="theme-btn" id="settingsBtnBootInfoOn"  onclick="setShowBootInfo(true)">✅ On</button>
+                    <button class="theme-btn" id="settingsBtnBootInfoOff" onclick="setShowBootInfo(false)">🚫 Off</button>
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Splash logo</label>
+                <div class="field-hint">Custom logo from the SD card (LVGL RGB565 <code>.bin</code>, any size — auto-fit to the panel). Requires an SD card; empty = built-in logo.</div>
+                <div style="margin:6px 0">
+                    <span style="opacity:.7">File:</span>
+                    <span id="logoPath" style="font-family:monospace;font-size:12px">(built-in)</span>
+                </div>
+                <button class="btn-secondary" onclick="openLogoBrowser()">📂 Choose file…</button>
+                <button class="btn-secondary" onclick="resetLogo()">↺ Built-in</button>
+                <div id="logoBrowser" style="display:none;margin-top:8px"></div>
+            </div>
+        </div>
+
+        </div><!-- /sub-pane panel -->
+
+        <div class="sub-pane" data-sub="theme">
+        <div class="panel">
+            <label class="field-label">Theme</label>
+            <div class="theme-toggle wide" id="themeToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnDark"  onclick="setDeviceTheme('dark')">🌙 Dark</button>
+                <button class="theme-btn" id="settingsBtnLight" onclick="setDeviceTheme('light')">☀️ Light</button>
+            </div>
+        </div>
+
+        <div class="field-group">
+            <label class="field-label">Editing palette</label>
+            <nav class="tab-nav" role="tablist" style="margin:6px 0 0">
+                <button type="button" class="tab-btn active" id="palTabDark"  onclick="selectPaletteTab('dark')">🌙 Dark</button>
+                <button type="button" class="tab-btn"        id="palTabLight" onclick="selectPaletteTab('light')">☀️ Light</button>
+            </nav>
+            <div class="field-hint">Changes apply instantly on the device display.</div>
+        </div>
+
+        <div class="panel">
+            <div id="colorGrid"></div>
+            <div class="color-actions">
+                <button id="colors_save_btn" onclick="saveColors()">💾 Save palette</button>
+                <button id="colors_reset_btn" class="btn-secondary" onclick="resetColors()">↺ Reset to defaults</button>
+            </div>
+            <div id="colors_status" class="save-status"></div>
+        </div>
+        </div><!-- /sub-pane theme -->
+
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Sleep & Wake
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-night" data-tab="night">
+        <div class="panel">
+            <label class="field-label">🔅 Dim &amp; Wake schedule</label>
+            <div class="theme-toggle" id="dimSchedToggle" style="width:fit-content">
+                <button type="button" class="theme-btn" id="dimSchedOn"  onclick="setDimScheduleEnabled(true)">✅ On</button>
+                <button type="button" class="theme-btn" id="dimSchedOff" onclick="setDimScheduleEnabled(false)">❌ Off</button>
+            </div>
+            <div class="field-hint">At the evening time dims the screen and can stop the radio; at the morning time brightens and can start a station (fades in). Requires NTP-synced clock.</div>
+            <div class="field-hint">💡 For idle-based dimming (lowers brightness after inactivity, not by clock), see Screensaver → Style → Dim.</div>
+
+            <div id="dim_sched_panel" style="margin-top:10px">
+                <div class="field-group">
+                    <label class="field-label">Dim at</label>
+                    <input type="time" id="dim_time" class="field-input" style="width:140px" />
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Dim brightness</label>
+                    <div class="slider-row">
+                        <input type="range" min="0" max="100" id="dim_brightness_slider"
+                               oninput="document.getElementById('dim_brightness_value').textContent = this.value" />
+                        <span id="dim_brightness_value" class="slider-value">20</span>
+                    </div>
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Brighten at</label>
+                    <input type="time" id="bright_time" class="field-input" style="width:140px" />
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">
+                        <input type="checkbox" id="night_radio_off" /> Stop playback at dim time
+                    </label>
+                </div>
+                <div class="field-group">
+                    <label class="field-label">
+                        <input type="checkbox" id="night_radio_on" /> Start radio at brighten time (fades in)
+                    </label>
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Wake station</label>
+                    <select id="night_station" class="field-input" style="width:200px"></select>
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Wake volume</label>
+                    <div class="slider-row">
+                        <input type="range" min="0" max="100" id="night_volume_slider"
+                               oninput="document.getElementById('night_volume_value').textContent = this.value" />
+                        <span id="night_volume_value" class="slider-value">50</span>
+                    </div>
+                </div>
+
+                <button type="button" id="dim_sched_save_btn" onclick="saveDimSchedule()">💾 Save schedule</button>
+                <div id="dim_sched_status" class="save-status"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Screensaver
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-screensaver" data-tab="screensaver">
+        <div class="panel">
+            <label class="field-label">Activation delay (seconds)</label>
+            <input type="number" id="scrs_delay" class="field-input" min="0" max="3600" step="5"
+                   style="width:140px" />
+            <div class="field-hint">Idle time before the screensaver starts. 0 = OFF.</div>
+
+            <label class="field-label" style="margin-top:10px">
+                <input type="checkbox" id="scrs_block_play" /> 🎵 Don't start while music is playing
+            </label>
+            <div class="field-hint">Keeps the screen on while radio, SD or Bluetooth audio is active.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Style</label>
+            <select id="scrs_id" class="field-input" style="width:240px" onchange="onScreensaverStyleChange()">
+                <option value="clockhands">🕒 Clock hands</option>
+                <option value="clockdigital">🕑 Digital clock</option>
+                <option value="starfield">✨ Starfield</option>
+                <option value="fireworks">🎆 Fireworks</option>
+                <option value="plasma">🌈 Plasma</option>
+                <option value="life">🧬 Game of Life</option>
+                <option value="dashboard">📊 Dashboard</option>
+                <option value="mqtt">📡 MQTT</option>
+                <option value="photo">🖼️ Photo frame (SD)</option>
+                <option value="blank">⬛ Blank (off)</option>
+                <option value="dim">🔅 Dim (lower brightness)</option>
+            </select>
+        </div>
+
+        <!-- MQTT screensaver — widgets are configured on the MQTT tab -->
+        <div id="mqtt_scrs_panel" class="panel">
+            <label class="field-label">📡 MQTT screensaver</label>
+            <div class="field-hint">
+                This screensaver shows the widgets defined in the MQTT settings.
+                Configure the broker connection and widgets on the
+                <a href="#tab=mqtt" onclick="selectTab('mqtt')">📨 MQTT tab</a>.
+            </div>
+        </div>
+
+        <!-- Dim screensaver — keeps the current screen, just lowers backlight -->
+        <div id="dim_panel" class="panel">
+            <label class="field-label">🔅 Dim level</label>
+            <div class="field-hint" style="margin-bottom:8px">
+                After the idle delay the current screen stays on but the backlight
+                drops to this level. Any tap or encoder restores full brightness.
+            </div>
+            <div class="field-hint" style="margin-bottom:8px">
+                💡 For clock-based dimming (a fixed night window), see Dim &amp; Wake.
+            </div>
+            <div class="slider-row">
+                <input type="range" min="0" max="100" id="scrs_dim_level"
+                       oninput="document.getElementById('scrs_dim_level_value').textContent = this.value" />
+                <span id="scrs_dim_level_value" class="slider-value">20</span>
+            </div>
+        </div>
+
+        <!-- Photo-frame screensaver -->
+        <div id="photo_panel" class="panel">
+            <label class="field-label">🖼️ Photo frame</label>
+            <div class="field-hint" style="margin-bottom:8px">
+                Plays LVGL <code>.bin</code> slides from the SD card. Convert images with
+                <code>scripts/img2lvgl.py</code> and upload them via the SD file manager.
+                Enter the folder as a full path starting with <code>/sdcard</code>,
+                e.g. <code>/sdcard/slides/320x240</code> (letter case doesn't matter).
+            </div>
+            <label class="field-label">Folder on SD</label>
+            <input id="photo_dir" class="field-input" style="width:240px" type="text" placeholder="/sdcard/slides">
+
+            <label class="field-label" style="margin-top:10px">Order</label>
+            <select id="photo_order" class="field-input" style="width:240px">
+                <option value="0">▶️ Sequential</option>
+                <option value="1">🔀 Random</option>
+            </select>
+
+            <label class="field-label" style="margin-top:10px">Effect</label>
+            <select id="photo_effect" class="field-input" style="width:240px">
+                <option value="0">⬇️ Top-down</option>
+                <option value="1">➡️ Wipe (side)</option>
+                <option value="2">✨ Dissolve</option>
+                <option value="3">🧩 Interlaced</option>
+                <option value="4">🎲 Random per slide</option>
+            </select>
+
+            <label class="field-label" style="margin-top:10px">Seconds per slide</label>
+            <input id="photo_hold" class="field-input" style="width:240px" type="number" min="1" value="8">
+
+            <label class="field-label" style="margin-top:10px">Reveal speed</label>
+            <div style="display:flex;align-items:center;gap:10px">
+                <input type="range" min="1" max="5" id="photo_speed"
+                       oninput="document.getElementById('photo_speed_value').textContent = this.value" />
+                <span id="photo_speed_value" class="slider-value">3</span>
+            </div>
+
+            <label class="field-label" style="margin-top:10px">
+                <input type="checkbox" id="photo_clock" /> 🕒 Show clock over photos
+            </label>
+
+            <label class="field-label" style="margin-top:10px">Clock size</label>
+            <select id="photo_clock_size" class="field-input" style="width:240px">
+                <option value="72">Small (72)</option>
+                <option value="80">Medium (80)</option>
+                <option value="96">Large (96)</option>
+                <option value="120">Huge (120)</option>
+            </select>
+        </div>
+
+        <!-- Dashboard screensaver — webhook-driven widget config -->
+        <div id="dashboard_panel" class="panel">
+            <label class="field-label">📊 Dashboard widget</label>
+            <div class="field-hint" style="margin-bottom:8px">
+                Polls a JSON endpoint and renders one value. Active when screensaver style is "Dashboard".
+            </div>
+
+            <div class="field-group">
+                <label class="field-label">Title</label>
+                <input type="text" id="dash_title" class="field-input" maxlength="31"
+                       placeholder="USD/PLN" />
+            </div>
+            <div class="field-group">
+                <label class="field-label">URL</label>
+                <input type="text" id="dash_url" class="field-input" maxlength="255"
+                       placeholder="https://api.example.com/..." />
+                <div class="field-hint">Must return JSON. HTTPS supported via cert bundle.</div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">JSON path</label>
+                <input type="text" id="dash_json_path" class="field-input" maxlength="63"
+                       placeholder="rates[0].mid" />
+                <div class="field-hint">
+                    Dot/bracket path into the response, e.g. <code>rates[0].mid</code>,
+                    <code>main.temp</code>, <code>data[2].value</code>. Empty = use root.
+                </div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Suffix</label>
+                <input type="text" id="dash_suffix" class="field-input" maxlength="15"
+                       placeholder=" PLN" />
+                <div class="field-hint">Appended to the value. Leave empty for none.</div>
+            </div>
+            <div class="field-group">
+                <label class="field-label">Poll interval (seconds)</label>
+                <input type="number" id="dash_poll_s" class="field-input" min="5" max="3600" step="1"
+                       style="width:140px" />
+                <div class="field-hint">Minimum 5 s. Default 60 s.</div>
+            </div>
+
+            <!-- Notification — buzzer when value crosses a threshold -->
+            <div class="field-group" style="margin-top:14px;border-top:1px solid var(--border, #333);padding-top:14px">
+                <label class="field-label">🔔 Notification</label>
+                <div class="theme-toggle" style="width:fit-content;margin-top:4px">
+                    <button type="button" class="theme-btn" id="dashNotifyOn"  onclick="setDashboardNotifyEnabled(true)">✅ On</button>
+                    <button type="button" class="theme-btn" id="dashNotifyOff" onclick="setDashboardNotifyEnabled(false)">❌ Off</button>
+                </div>
+                <div class="field-hint">
+                    Plays a melody when the value crosses a threshold. Fires once per crossing;
+                    rearms when the value comes back across.
+                </div>
+            </div>
+
+            <div id="dash_notify_panel">
+                <div class="field-group">
+                    <label class="field-label">Value type</label>
+                    <select id="dash_value_type" class="field-input" style="width:240px"
+                            onchange="onDashboardValueTypeChange()">
+                        <option value="number">🔢 Number (uses &lt; / &gt; thresholds)</option>
+                        <option value="string">🔤 String (uses == / != comparisons)</option>
+                    </select>
+                </div>
+
+                <!-- Number mode -->
+                <div id="dash_notify_num">
+                    <div class="field-group">
+                        <label class="field-label">
+                            <input type="checkbox" id="dash_num_low_en" />
+                            Alert when value &lt;
+                        </label>
+                        <input type="number" id="dash_num_low" class="field-input" step="any"
+                               style="width:160px" />
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label">
+                            <input type="checkbox" id="dash_num_high_en" />
+                            Alert when value &gt;
+                        </label>
+                        <input type="number" id="dash_num_high" class="field-input" step="any"
+                               style="width:160px" />
+                    </div>
+                </div>
+
+                <!-- String mode -->
+                <div id="dash_notify_str">
+                    <div class="field-group">
+                        <label class="field-label">
+                            <input type="checkbox" id="dash_str_eq_en" />
+                            Alert when value ==
+                        </label>
+                        <input type="text" id="dash_str_eq" class="field-input" maxlength="31"
+                               placeholder="rain" />
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label">
+                            <input type="checkbox" id="dash_str_ne_en" />
+                            Alert when value !=
+                        </label>
+                        <input type="text" id="dash_str_ne" class="field-input" maxlength="31"
+                               placeholder="ok" />
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <button id="scrs_save_btn" onclick="saveScreensaverTab()">💾 Save &amp; Apply</button>
+        <div id="scrs_status" class="save-status"></div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Audio
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-audio" data-tab="audio">
+        <div class="panel">
+            <label class="field-label">Equalizer (DSP)</label>
+            <div class="theme-toggle" id="dspToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnDspOn"  onclick="setDeviceEqEnabled(true)">✅ On</button>
+                <button class="theme-btn" id="settingsBtnDspOff" onclick="setDeviceEqEnabled(false)">❌ Off</button>
+            </div>
+            <div class="field-hint">When off, the 10-band EQ is bypassed entirely. Volume is unaffected.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Output channels</label>
+            <div class="theme-toggle" id="monoToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnStereo" onclick="setDeviceMono(false)">🎧 Stereo</button>
+                <button class="theme-btn" id="settingsBtnMono"   onclick="setDeviceMono(true)">🔊 Mono</button>
+            </div>
+            <div class="field-hint">Mono sums left and right into both channels — for single-speaker builds.
+                This affects the output only, not the stream itself: the CHANNELS readout on the device
+                and in the web player keeps showing the source format (so a stereo stream still reads
+                STEREO), and the VU meters keep their stereo image.
+                Bluetooth playback is unaffected (it bypasses the DSP).</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Volume curve</label>
+            <div class="theme-toggle" id="volLogToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnVolLog"    onclick="setDeviceVolumeLog(true)">🎚️ Tapered</button>
+                <button class="theme-btn" id="settingsBtnVolGentle" onclick="setDeviceVolumeLog(false)">📏 Gentle</button>
+            </div>
+            <div class="field-hint">How the 0–100 % number maps to actual output gain.
+                <em>Tapered</em> (default) raises the position to the fourth power, so the quiet end of the
+                scale is fine-grained and usable. <em>Gentle</em> squares it instead — half as steep in dB,
+                for amplifiers that already taper in hardware. Both reach full output at 100 %.
+                <strong>Gentle is louder at low settings</strong>: 20 % is −28 dB against −56 dB tapered,
+                so turn the volume down before switching. Applies instantly.
+                Bluetooth is unaffected (the module scales in hardware, outside the DSP).</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Resume playback on boot</label>
+            <div class="theme-toggle" id="resumeToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnResumeOn"  onclick="setResumeOnBoot(true)">✅ On</button>
+                <button class="theme-btn" id="settingsBtnResumeOff" onclick="setResumeOnBoot(false)">❌ Off</button>
+            </div>
+            <div class="field-hint">When on, if the radio was playing before a restart, it resumes the last station automatically after boot.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Auto-switch source (Bluetooth ⇄ Radio / SD)</label>
+            <div class="theme-toggle" id="btAutoToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnAutoSwitchOn"  onclick="setBtAutoSwitch(true)">✅ On</button>
+                <button class="theme-btn" id="settingsBtnAutoSwitchOff" onclick="setBtAutoSwitch(false)">❌ Off</button>
+            </div>
+            <div class="field-hint">When on, starting playback on the phone takes over the output — it stops the radio or the SD player — and starting the radio pauses the phone. Starting SD playback always pauses the phone, regardless of this setting.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Test tone (channel check)</label>
+            <div class="field-hint">Plays a signal on the left channel, then the right — a quick way to verify the wiring, amp and speakers without an SD card or stream. Uses the current volume.</div>
+
+            <label class="field-label" style="margin-top:12px">Signal</label>
+            <select id="testtone_signal" class="field-input" style="width:fit-content">
+                <option value="pink">Pink noise</option>
+                <option value="white">White noise</option>
+                <option value="sine">Sine (1 kHz)</option>
+            </select>
+
+            <label class="field-label" style="margin-top:12px">Duration per channel</label>
+            <div class="slider-row">
+                <input type="range" min="0.2" max="5" step="0.1" value="1" id="testtone_dur_slider"
+                       oninput="document.getElementById('testtone_dur_value').textContent = Number(this.value).toFixed(1) + ' s'" />
+                <span id="testtone_dur_value" class="slider-value">1.0 s</span>
+            </div>
+
+            <button id="testtone_play_btn" class="wifi-save-btn" style="margin-top:12px" onclick="playTestTone()">▶️ Play test tone</button>
+            <div id="testtone_status" class="save-status"></div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Network
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-wifi" data-tab="wifi">
+        <div id="wifi_mode_banner" class="wifi-banner hidden"></div>
+
+        <button id="wifi_scan_btn" class="wifi-save-btn" style="margin-bottom:6px"
+                onclick="scanWifi()">🔍 Scan networks</button>
+        <div class="field-hint">
+            Pick a network instead of typing its name. While connected, a scan
+            briefly hops off-channel and a playing stream may stutter.
+        </div>
+        <div id="wifi_scan_status" class="save-status"></div>
+        <div id="wifi_scan_list" class="scan-list hidden"></div>
+
+        <div class="field-group">
+            <label class="field-label">Network SSID</label>
+            <input type="text" id="wifi_ssid" class="field-input"
+                   placeholder="Nazwa sieci WiFi" autocomplete="off" />
+        </div>
+        <div class="field-group">
+            <label class="field-label">Password</label>
+            <div class="pw-row">
+                <input type="password" id="wifi_password" class="field-input"
+                       placeholder="••••••••" autocomplete="new-password" />
+                <button class="pw-eye" id="pw_eye" onclick="togglePwVisibility()" title="Show/hide">👁</button>
+            </div>
+            <div class="field-hint">Leave blank to keep the existing password.</div>
+        </div>
+
+        <button id="wifi_save_btn" class="wifi-save-btn" onclick="saveWifi()">
+            📡 Save WiFi and restart
+        </button>
+        <div id="wifi_status" class="save-status"></div>
+
+        <hr style="border:none;border-top:1px solid rgba(127,127,127,0.25);margin:22px 0;" />
+
+        <div class="field-group">
+            <label class="field-label">Device name (mDNS)</label>
+            <input type="text" id="device_hostname" class="field-input"
+                   placeholder="atlascube.local" autocomplete="off" maxlength="37" />
+            <div class="field-hint">
+                Web address of the device — copy &amp; paste into a browser.
+                Clear the field for an automatic name derived from the MAC.
+            </div>
+        </div>
+
+        <button id="host_save_btn" class="wifi-save-btn" onclick="saveHostname()">
+            🏷️ Save device name
+        </button>
+        <div id="host_status" class="save-status"></div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         DATE & TIME (formats + NTP sync)
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-datetime" data-tab="datetime">
+        <div class="field-group">
+            <label class="field-label">Time format</label>
+            <div class="field-hint">How the clock is shown on the device's home screen. Applies instantly.</div>
+            <div class="theme-toggle uniform" id="timeFmtToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnTime24" onclick="setTimeAmpm(false)">🕐 24-hour</button>
+                <button class="theme-btn" id="settingsBtnTime12" onclick="setTimeAmpm(true)">🕐 AM/PM</button>
+            </div>
+        </div>
+        <div class="field-group">
+            <label class="field-label">Date format</label>
+            <div class="field-hint">How the date is shown on the device's home screen. Applies instantly.</div>
+            <div class="theme-toggle uniform" id="dateFmtToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnDateYmd" onclick="setDateMdy(false)">📅 YYYY-MM-DD</button>
+                <button class="theme-btn" id="settingsBtnDateMdy" onclick="setDateMdy(true)">📅 MM-DD-YYYY</button>
+            </div>
+        </div>
+        <div class="field-group">
+            <label class="field-label">NTP Server 1</label>
+            <input type="text" id="ntp_server1" class="field-input" placeholder="pool.ntp.org" />
+        </div>
+        <div class="field-group">
+            <label class="field-label">NTP Server 2 (fallback)</label>
+            <input type="text" id="ntp_server2" class="field-input" placeholder="time.cloudflare.com" />
+        </div>
+        <div class="field-group">
+            <label class="field-label">Timezone preset</label>
+            <select id="tz_preset" class="field-input" onchange="onTzPreset(this.value)">
+                <option value="">— select preset —</option>
+                <optgroup label="Europe">
+                    <option value="UTC0">UTC</option>
+                    <option value="WET0WEST,M3.5.0/1,M10.5.0">WET/WEST – Western Europe (UK, PT)</option>
+                    <option value="CET-1CEST,M3.5.0,M10.5.0/3">CET/CEST – Central Europe (PL, DE, FR…)</option>
+                    <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">EET/EEST – Eastern Europe (UA, GR, FI…)</option>
+                    <option value="MSK-3">MSK – Moscow</option>
+                </optgroup>
+                <optgroup label="Americas">
+                    <option value="EST5EDT,M3.2.0,M11.1.0">EST/EDT – US Eastern</option>
+                    <option value="CST6CDT,M3.2.0,M11.1.0">CST/CDT – US Central</option>
+                    <option value="MST7MDT,M3.2.0,M11.1.0">MST/MDT – US Mountain</option>
+                    <option value="PST8PDT,M3.2.0,M11.1.0">PST/PDT – US Pacific</option>
+                    <option value="BRT3">BRT – Brazil (São Paulo)</option>
+                </optgroup>
+                <optgroup label="Asia / Pacific">
+                    <option value="IST-5:30">IST – India</option>
+                    <option value="CST-8">CST – China / Singapore</option>
+                    <option value="JST-9">JST – Japan / Korea</option>
+                    <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">AEST/AEDT – Eastern Australia</option>
+                </optgroup>
+            </select>
+        </div>
+        <div class="field-group">
+            <label class="field-label">Timezone (POSIX string)</label>
+            <input type="text" id="ntp_tz" class="field-input"
+                   placeholder="CET-1CEST,M3.5.0,M10.5.0/3"
+                   oninput="onTzManualEdit()" />
+            <div class="field-hint">Max 63 chars. Select a preset or type manually.</div>
+            <div class="field-hint" style="margin-top:6px;color:var(--accent)">
+                ⚠ Changing the timezone while events are scheduled may cause an already-fired
+                event to trigger again (or a due event to be skipped) if the local date shifts.
+                Set your timezone once during initial setup and avoid changing it later.
+            </div>
+        </div>
+
+        <button id="save_btn" onclick="saveSettings()">💾 Save &amp; Apply</button>
+        <div id="save_status" class="save-status"></div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         MQTT
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-mqtt" data-tab="mqtt">
+        <div class="panel">
+            <label class="field-label">MQTT client</label>
+            <div class="theme-toggle" id="mqttEnabledToggle" style="width:fit-content">
+                <button class="theme-btn" id="mqttBtnOn"  onclick="setMqttEnabled(true)">✅ On</button>
+                <button class="theme-btn" id="mqttBtnOff" onclick="setMqttEnabled(false)">❌ Off</button>
+            </div>
+            <div class="field-hint">When disabled, the device does not connect to the broker.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Broker host</label>
+            <input type="text" id="mqtt_host" class="field-input" placeholder="192.168.1.10" />
+        </div>
+        <div class="panel">
+            <label class="field-label">Broker port</label>
+            <input type="number" id="mqtt_port" class="field-input" min="1" max="65535" placeholder="1883" style="width:140px" />
+        </div>
+        <div class="panel">
+            <label class="field-label">Username (optional)</label>
+            <input type="text" id="mqtt_username" class="field-input" autocomplete="off" />
+        </div>
+        <div class="panel">
+            <label class="field-label">Password (optional)</label>
+            <input type="password" id="mqtt_password" class="field-input" placeholder="••••••••" autocomplete="new-password" />
+            <div class="field-hint">Leave blank to keep the existing password.</div>
+        </div>
+        <div class="panel">
+            <label class="field-label">Client ID</label>
+            <input type="text" id="mqtt_client_id" class="field-input" placeholder="atlascube-A1B2C3" />
+            <div class="field-hint">Must be unique per broker — two devices sharing one ID disconnect each other in a loop. Leave blank for an ID derived from this device's MAC.</div>
+        </div>
+        <div class="panel">
+            <label class="field-label">Base topic</label>
+            <input type="text" id="mqtt_base_topic" class="field-input" placeholder="atlascube" />
+            <div class="field-hint">Device topics will be: &lt;base&gt;/state/* and &lt;base&gt;/cmd/*.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">On-device widgets</label>
+            <a href="/mqtt.html" class="tool-btn tool-link" style="width:fit-content;padding:8px 14px">🔧 Edit MQTT Widgets</a>
+            <div class="field-hint">Up to 6 widgets (toggle / slider / label) shown on the MQTT screen.</div>
+        </div>
+
+        <button id="mqtt_save_btn" onclick="saveMqtt()">💾 Save MQTT</button>
+        <div id="mqtt_status" class="save-status"></div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Weather (home-screen widget, Open-Meteo)
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-weather" data-tab="weather">
+        <div class="panel">
+            <label class="field-label">Weather widget</label>
+            <div class="theme-toggle" id="weatherEnabledToggle" style="width:fit-content">
+                <button class="theme-btn" id="weatherBtnOn"  onclick="setWeatherEnabled(true)">✅ On</button>
+                <button class="theme-btn" id="weatherBtnOff" onclick="setWeatherEnabled(false)">❌ Off</button>
+            </div>
+            <div class="field-hint">Shows current conditions on the device's home screen.
+                Widget position is set in the <a href="/layout.html">layout editor</a>.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Provider</label>
+            <select id="weather_provider" class="field-input" style="width:280px"
+                    onchange="onWeatherProvider()">
+                <option value="0">Open-Meteo (no API key)</option>
+                <option value="1">OpenWeatherMap (API key required)</option>
+            </select>
+        </div>
+        <div class="panel" id="weather_key_panel" style="display:none">
+            <label class="field-label">OpenWeatherMap API key</label>
+            <input type="text" id="weather_api_key" class="field-input"
+                   placeholder="e.g. 1a2b3c…" autocomplete="off" />
+            <div class="field-hint">Get a free key at
+                <a href="https://openweathermap.org/api" target="_blank" rel="noopener">openweathermap.org</a>.
+                Stored in weather.json, so it exports with the rest of the configuration.</div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Location</label>
+            <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+                <div>
+                    <label class="field-hint" for="weather_location_query">City or postal code</label>
+                    <input type="search" id="weather_location_query" class="field-input"
+                           placeholder="e.g. Warsaw or 00-001" style="width:280px"
+                           onkeydown="if(event.key==='Enter'){event.preventDefault();findWeatherLocation()}" />
+                </div>
+                <button type="button" id="weather_location_btn" class="btn-secondary"
+                        onclick="findWeatherLocation()">&#128269; Find location</button>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+                <div>
+                    <label class="field-hint" for="weather_lat">Latitude</label>
+                    <input type="number" id="weather_lat" class="field-input" min="-90" max="90"
+                           step="0.0001" placeholder="52.2297" style="width:180px" />
+                </div>
+                <div>
+                    <label class="field-hint" for="weather_lon">Longitude</label>
+                    <input type="number" id="weather_lon" class="field-input" min="-180" max="180"
+                           step="0.0001" placeholder="21.0122" style="width:180px" />
+                </div>
+            </div>
+            <div class="field-hint">Search powered by Open-Meteo, or enter coordinates manually. Saving remains a separate step.</div>
+        </div>
+        <div class="panel">
+            <label class="field-label">Temperature units</label>
+            <select id="weather_units" class="field-input" style="width:280px"
+                    onchange="renderWeatherNow()">
+                <option value="0">Celsius (°C)</option>
+                <option value="1">Fahrenheit (°F)</option>
+            </select>
+            <div class="field-hint">Display only — the device always fetches the data in °C.</div>
+        </div>
+        <div class="panel">
+            <label class="field-label">Refresh interval (minutes)</label>
+            <input type="number" id="weather_refresh" class="field-input" min="5" max="240"
+                   placeholder="30" style="width:140px" />
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Current data</label>
+            <div id="weather_now" class="field-hint">—</div>
+        </div>
+
+        <button id="weather_save_btn" onclick="saveWeather()">💾 Save Weather</button>
+        <div id="weather_status" class="save-status"></div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Tools
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-tools" data-tab="tools">
+        <div class="panel">
+            <div class="panel-label">FILE TOOLS</div>
+            <div class="tools-grid">
+                <a href="/manager.html" class="tool-btn tool-link">🗂 File manager (SPIFFS ⇄ SD)</a>
+                <a href="/spiffs-editor.html" class="tool-btn tool-link">📝 SPIFFS file editor</a>
+                <a href="/sd-editor.html" class="tool-btn tool-link">💾 SD card file editor</a>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-label">HARDWARE</div>
+            <div class="field-hint">
+                Remap GPIO pins for display / touch / SD / encoder / Bluetooth, stored on the
+                device. Advanced — wrong pins can blank the display (recoverable here).
+                Opens the built-in setup page.
+            </div>
+            <a href="/setup" class="tool-btn tool-link" style="width:fit-content;padding:8px 14px">🔌 Open pin setup</a>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         Diagnostics — device health snapshot + runtime log flags
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-diag" data-tab="diag">
+        <div class="panel">
+            <div class="panel-label panel-label--row">
+                <span>🩺 Diagnostics</span>
+                <button type="button" id="diag_copy_btn" class="tool-btn diag-copy"
+                        onclick="copyDiagReport()">📋 Copy report</button>
+            </div>
+            <div class="field-hint">
+                Live device health, refreshed every 2 s while this tab is open — the same
+                snapshot as <strong>Settings → System → Diagnostics</strong> on the device.
+                <strong>Copy report</strong> puts it on the clipboard as plain text, ready to
+                paste into a bug report.
+            </div>
+            <div id="diag_body" class="diag-body">Loading…</div>
+            <div id="diag_status" class="save-status"></div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">🐞 Diagnostic logging</label>
+            <div class="field-hint">
+                Extra log lines on the serial console (115200 baud), per subsystem —
+                for hunting a problem on a device that is already flashed, without a
+                debug build. Off by default; the choice is saved, so an armed flag
+                also covers the next boot. Leave it off in normal use: the busiest
+                flags print several lines per second.
+            </div>
+            <div id="trace_flags" class="trace-flags">Loading…</div>
+        </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════
+         System — firmware update, web UI files, backup & restore
+    ══════════════════════════════════════════ -->
+    <section class="tab-pane" id="tab-system" data-tab="system">
+        <div class="panel ota-panel">
+            <div class="panel-label">FIRMWARE (OTA)</div>
+            <div class="ota-version-row">
+                <span>Current version</span>
+                <code id="ota_version">…</code>
+            </div>
+
+            <label class="field-label">🔔 Update notifications</label>
+            <div class="field-hint">
+                Show an update prompt on the device screen when a newer firmware is
+                available. The device always checks at boot — this only controls the
+                on-screen prompt.
+            </div>
+            <div class="theme-toggle" id="updateNotifyToggle" style="width:fit-content">
+                <button class="theme-btn" id="settingsBtnUpdateOn"  onclick="setUpdateEnable(true)">✅ On</button>
+                <button class="theme-btn" id="settingsBtnUpdateOff" onclick="setUpdateEnable(false)">🚫 Off</button>
+            </div>
+
+            <div class="ota-divider"></div>
+            <label class="field-label">⬆️ Install image</label>
+            <div id="www_outdated_warn" class="www-outdated-warn" style="display:none">
+                ⚠️ The web UI files don't match the firmware (left behind by an
+                app-only OTA update). Re-upload the new web UI files in the
+                <strong>Web UI files</strong> section below — include
+                <code>www_version.txt</code> in the selection to clear this warning.
+                Get the matching files (<code>AtlasCube-www.zip</code>) from the
+                <a href="https://github.com/marcinozog/AtlasCube/releases/latest"
+                   target="_blank" rel="noopener">latest GitHub release</a>.
+                <div id="www_hashes" class="www-hashes"></div>
+            </div>
+            <div class="field-hint ota-warn">
+                Upload an application image — <code>atlascube.bin</code>, or
+                <code>AtlasCube-&lt;display&gt;-ota.bin</code> for your display from
+                <a href="https://atlascube.net/flash/" target="_blank" rel="noopener">atlascube.net/flash</a>.
+                The device writes it to the inactive slot and reboots into the new firmware.
+                A release's <code>AtlasCube-&lt;display&gt;.bin</code> (without
+                <code>-ota</code>) is the full-flash image for USB flashing and is
+                rejected here. <strong>Do not power off during the upload.</strong>
+            </div>
+            <input type="file" id="ota_file" accept=".bin" class="ota-file" />
+            <button id="ota_btn" onclick="uploadFirmware()">⬆️ Upload &amp; install</button>
+            <div id="ota_progress_wrap" class="ota-progress-wrap hidden">
+                <progress id="ota_progress" class="ota-progress" value="0" max="100"></progress>
+                <span id="ota_progress_pct" class="slider-value">0%</span>
+            </div>
+            <div id="ota_status" class="save-status"></div>
+
+            <div class="ota-divider"></div>
+            <label class="field-label">⬇️ Export image (backup)</label>
+            <div class="field-hint">
+                Download the running firmware as a <code>.bin</code> — the same image the
+                section above installs. Keep it before updating, then re-upload it there
+                to roll back. Firmware only: settings, web UI files and WiFi credentials
+                are not included.
+            </div>
+            <a href="/api/ota/backup" class="tool-btn tool-link ota-backup-btn" download>⬇️ Download image</a>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">🌐 Web UI files</label>
+            <div class="ota-version-row">
+                <span>Built</span>
+                <code id="www_ver">…</code>
+            </div>
+            <div class="field-hint">
+                Re-upload the web UI after an app-only OTA left it behind (the warning
+                above). Pick the raw files from <code>spiffs_image/www/</code> — get the
+                matching set (<code>AtlasCube-www.zip</code>) from the
+                <a href="https://github.com/marcinozog/AtlasCube/releases/latest/download/AtlasCube-www.zip"
+                   target="_blank" rel="noopener">latest release</a>. Include
+                <code>www_version.txt</code> in the selection to clear the warning.
+                HTML/CSS/JS are gzipped on the device; <code>.ico</code> isn't supported here.
+            </div>
+            <input type="file" id="www_files" class="ota-file" multiple
+                   accept=".html,.css,.js,.json,.csv,.svg,.txt" />
+            <button id="www_btn" onclick="uploadWebUi()">⬆️ Upload web UI files</button>
+            <div id="www_status" class="save-status"></div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">⚙️ Settings &amp; stations backup</label>
+            <div class="field-hint">
+                Download every user file on the <code>config</code> partition (settings,
+                theme, events, MQTT, layout and the station list) <strong>plus the hardware
+                pin map</strong> as a single <code>.json</code> — a snapshot to keep before a
+                full USB flash, which erases them. Wi-Fi/MQTT passwords live in a separate
+                secure store and are <strong>not</strong> included. Same file format as the
+                built-in <a href="/setup">setup page</a> — a backup made there imports here
+                and the other way round.
+            </div>
+            <button id="cfg_export_btn" onclick="exportSettings()">⬇️ Export settings</button>
+            <div id="cfg_export_status" class="save-status"></div>
+
+            <div class="ota-divider"></div>
+            <div class="field-hint">
+                Restore a backup made above or on the setup page. Existing files are
+                overwritten; a restored pin map needs a full power cycle (not just a
+                restart) to take effect.
+            </div>
+            <input type="file" id="cfg_import_file" class="ota-file" accept=".json" />
+            <button id="cfg_import_btn" onclick="importSettings()">⬆️ Import settings</button>
+            <div id="cfg_import_status" class="save-status"></div>
+        </div>
+
+        <div class="panel" id="espnow_panel">
+            <label class="field-label">🎛️ Hardware remote (ESP-NOW)</label>
+            <div class="ota-version-row">
+                <span>Paired remote</span>
+                <code id="espnow_peer">…</code>
+            </div>
+            <div class="ota-version-row">
+                <span>Last contact</span>
+                <code id="espnow_seen">…</code>
+            </div>
+            <div class="ota-version-row" id="espnow_link_row" style="display:none">
+                <span>Link</span>
+                <code id="espnow_link">…</code>
+            </div>
+            <div class="field-hint">
+                The remote talks to the radio over ESP-NOW, not Wi-Fi — this button only
+                opens a 60-second window during which the radio accepts a pairing
+                request. Press it, then start pairing from the remote's own menu.
+                Pairing again replaces the stored remote.
+                <br>
+                The remote sleeps between button presses, so “last contact” is the
+                age of the last frame it sent — hours of silence is a healthy remote
+                on battery, not a broken link.
+            </div>
+            <button id="espnow_pair_btn" onclick="pairRemote()">🔗 Open pairing window</button>
+            <div id="espnow_status" class="save-status"></div>
+        </div>
+    </section>
+
+    <a href="/index.html" class="back-link" style="margin:18px 0 0">← Back to Radio</a>
+
+</main>
+
+<script src="lvbin.js"></script>
+<script src="sdbrowse.js"></script>
+<script src="settings.js"></script>
+</body>
+</html>

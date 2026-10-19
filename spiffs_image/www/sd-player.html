@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AtlasCube · SD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  .transport{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0}
+  .sdbtn{flex:1;min-width:64px;padding:.7rem 1rem;border:none;border-radius:10px;
+         background:var(--panel-2,#1c2330);color:var(--text,#e6edf3);
+         font:600 1rem/1 'Chakra Petch',sans-serif;cursor:pointer;transition:background .15s}
+  .sdbtn:hover{background:var(--accent,#377aff);color:#fff}
+  .sdbtn.primary{background:var(--accent,#377aff);color:#fff}
+  .sdbtn.on{background:var(--accent,#377aff);color:#fff}
+  .np-index{font:500 .85rem 'JetBrains Mono',monospace;color:var(--muted,#8b98a9);margin-top:.25rem}
+  #trackList{list-style:none;margin:.5rem 0 0;padding:0;max-height:50vh;overflow:auto}
+  #trackList li{padding:.6rem .8rem;border-radius:8px;cursor:pointer;
+                font:500 .92rem 'JetBrains Mono',monospace;color:var(--text,#e6edf3);
+                display:flex;gap:.6rem;align-items:center}
+  #trackList li:hover{background:var(--panel-2,#1c2330)}
+  #trackList li.active{background:var(--accent,#377aff);color:#fff}
+  #trackList li .num{color:var(--muted,#8b98a9);min-width:1.8rem;text-align:right}
+  #trackList li.active .num{color:#dbe6ff}
+  .empty{color:var(--muted,#8b98a9);padding:.6rem .2rem;font-size:.9rem}
+  .dir-row{display:flex;gap:.6rem;align-items:baseline;justify-content:space-between}
+  .dir-row .panel-label{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dir-link{flex:none;color:var(--accent,#377aff);text-decoration:none;
+            font:600 .8rem 'Chakra Petch',sans-serif;letter-spacing:.5px}
+  .dir-link:hover{text-decoration:underline}
+  .cover-row{display:flex;gap:.8rem;align-items:center;margin:.7rem 0 .3rem}
+  .cover-thumb{width:72px;height:72px;flex:none;border-radius:8px;
+               background:var(--panel-2,#1c2330);border:1px solid var(--border,#2a3340)}
+  .cover-thumb[hidden]{display:none}
+  .cover-empty{display:flex;align-items:center;justify-content:center;
+               font-size:1.7rem;color:var(--muted,#8b98a9)}
+  .cover-actions{display:flex;flex-direction:column;gap:.45rem;flex:1;min-width:0}
+  .cover-status{font:500 .78rem 'JetBrains Mono',monospace;color:var(--muted,#8b98a9);
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cover-btns{display:flex;gap:.5rem}
+  .cover-btns .sdbtn{flex:0 1 auto;padding:.45rem .8rem;font-size:.85rem}
+  .cover-btns .sdbtn:disabled{opacity:.45;cursor:default;background:var(--panel-2,#1c2330);color:var(--muted,#8b98a9)}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="logo"><span class="logo-icon">◈</span>
+    <div class="logo-stack">
+      <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+      <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+    </div></div>
+  <span class="fw-version">SD MUSIC</span>
+</header>
+
+<main class="card">
+  <section class="now-playing">
+    <div class="np-inner">
+      <div id="npTrack" class="track-title">---</div>
+      <div id="npIndex" class="np-index">—</div>
+      <div id="npInfo"  class="audio-info">---</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-label">PLAYBACK</div>
+    <div class="transport">
+      <button class="sdbtn" id="shufBtn" onclick="shuffle()" title="Shuffle">🔀</button>
+      <button class="sdbtn" onclick="prev()" title="Previous">⏮</button>
+      <button class="sdbtn primary" id="ppBtn" onclick="playPause()" title="Play / Pause">⏯</button>
+      <button class="sdbtn" onclick="next()" title="Next">⏭</button>
+      <button class="sdbtn" id="repBtn" onclick="repeat()" title="Repeat">🔁</button>
+    </div>
+    <div class="transport">
+      <button class="sdbtn" onclick="stop()" title="Stop">⏹</button>
+      <button class="sdbtn primary" style="flex:2" onclick="playAll()">▶ Play folder</button>
+      <button class="sdbtn" onclick="scan()">⟳ Scan</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="slider-row">
+      <span class="slider-label">🔊 Volume</span>
+      <span id="vol_value" class="slider-value">50</span>
+    </div>
+    <input type="range" min="0" max="100" value="50"
+           id="volume_slider" oninput="onVolumeChange(this.value)" />
+  </section>
+
+  <section class="panel">
+    <div class="dir-row">
+      <div class="panel-label" id="dirLabel">/sdcard/music</div>
+      <a class="dir-link" id="editorLink" href="/sd-editor.html"
+         title="Manage the files in this folder">💾 FILES MANAGER</a>
+    </div>
+    <!-- Album cover of the browsed folder: one cover.bin the device shows on
+         its SD player screen. Converted in the browser (lvbin.js), so the
+         device only ever reads the finished file. -->
+    <div class="cover-row">
+      <canvas id="coverPreview" class="cover-thumb" width="240" height="240" hidden></canvas>
+      <div id="coverEmpty" class="cover-thumb cover-empty">🖼</div>
+      <div class="cover-actions">
+        <div id="coverStatus" class="cover-status">—</div>
+        <div class="cover-btns">
+          <button class="sdbtn" onclick="pickCover()">⬆ Set cover</button>
+          <button class="sdbtn" id="coverDelBtn" onclick="removeCover()" disabled>🗑 Remove</button>
+        </div>
+      </div>
+    </div>
+    <input type="file" id="coverFile" accept="image/*" hidden onchange="onCoverPicked(this)">
+
+    <ul id="trackList"><li class="empty">Click "Scan"…</li></ul>
+  </section>
+
+  <!-- ── Toolbar ── -->
+  <div class="toolbar">
+    <a href="/index.html" class="tool-btn tool-link">📻 Radio</a>
+    <button class="tool-btn" onclick="openEq()">🎛 Equalizer</button>
+    <a href="/bt.html" class="tool-btn tool-link">🔵 Bluetooth</a>
+    <a href="/events.html" class="tool-btn tool-link">🗓 Events</a>
+    <a href="/settings.html" class="tool-btn tool-link">⚙ Settings</a>
+  </div>
+</main>
+
+<!-- ═══════════════════════ MODAL: EQUALIZER ═══════════════════════ -->
+<div id="eq_modal" class="modal hidden" onclick="onModalBgClick(event,'eq_modal')">
+  <div class="modal-content">
+    <div class="modal-header">
+      <span class="modal-title">🎛 Equalizer</span>
+      <button class="modal-close" onclick="closeEq()">✕</button>
+    </div>
+    <canvas id="eq_canvas" width="320" height="120"></canvas>
+    <div class="eq-wrapper">
+      <div id="eq_bands"></div>
+      <div class="eq-scale">
+        <span>+6</span>
+        <span>0</span>
+        <span>−13</span>
+      </div>
+    </div>
+    <div class="eq-footer">
+      <button class="btn-secondary" onclick="resetEQ()">↺ Reset</button>
+      <button class="btn-secondary" onclick="closeEq()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script src="lvbin.js"></script>
+<script src="sd-player.js"></script>
+</body>
+</html>

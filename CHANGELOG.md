@@ -1,0 +1,1072 @@
+# Changelog
+
+All notable changes to AtlasCube firmware are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+While the major version is `0`, any minor release may introduce breaking changes.
+
+## [Unreleased]
+
+## [0.51.0] - 2026-08-18
+
+### Added
+- **scripts:** ask whether to open the monitor after flashing
+- **espnow:** trace the link's internal-heap cost under TRACE_ESPNOW
+- **audio:** make the volume curve switchable between tapered and gentle
+- **audio:** make the volume curve switchable between tapered and linear
+- **www:** reject a full-flash image in the firmware upload panel
+- **ota:** unify the firmware panel and export only the app image
+- **www:** link the screen preview from the home page
+- **www:** make the on-screen volume slider draggable in the preview
+- **ui:** expose the equalizer's frequency and hint fonts in the profile JSON
+- **www:** preview the equalizer screen in a modal
+- **ws:** broadcast bt_playing in the state frame
+- **www:** add the Bluetooth screen to the preview page
+- **www:** open the preview with the list screen and remember the source
+
+### Changed
+- **ui:** stop the VU meters burning float work while at rest
+- **ui:** move screensaver and layout-editor buffers out of internal DRAM
+- call the hardware remote a remote, not a pilot
+- **www:** drop the background-tier badge from the preview
+- **www:** move the event bell toggle from Settings to the Events page
+
+### Fixed
+- **www:** keep the preview toolbar on one row on narrow screens
+- **www:** make the preview volume bar visible and knob-only
+- **audio:** reset the retry budget only after a stream has played
+- **net:** drop hardware AES so TLS stops needing DMA-capable internal RAM
+- **www:** load the preview's boot requests two at a time
+- **www:** cap the equalizer modal height with a percentage, not vh
+- **mqtt:** derive the default client_id from the MAC to avoid broker collisions
+- **display:** serialize SSD1322 brightness writes against the LVGL flush
+- **bt:** confirm a play announcement with a moving position before switching source
+- **www:** draw preview artwork from the canvas instead of a PNG data URL
+- **www:** drive BT play/pause from bt_playing, not the source-aware toggle
+
+### Other
+- **www:** add the Bluetooth screen to the preview page
+
+## [0.50.3] - 2026-08-14
+
+### Fixed
+- **display:** bound every wait on the shared LCD/touch SPI bus
+
+## [0.50.2] - 2026-08-13
+
+### Added
+- **sd:** add colour overrides for the SD progress bar
+- **www:** keep the source switch reachable in fullscreen
+
+### Changed
+- **www:** drop the explanatory section from the preview page
+
+### Fixed
+- **www:** hide the stereo VU bar colour when colour zones are on
+
+## [0.50.0] - 2026-08-12
+
+### Added
+- **www:** show live SD playback progress in the preview
+- **ws:** publish SD playback position and duration
+- **www:** rework the screen preview into a multi-source page
+- **www:** add playlist screen, fullscreen and volume to radio preview
+- **www:** add a live radio-screen preview with working touch hotspots
+- **www:** add a faithful radio-screen preview page
+- **ui:** make the wallpaper-fetch backdrop opaque
+- **ui:** dim the whole screen behind the wallpaper-fetch pill
+- **wallpaper:** add a Clear slot button that drops the URL and the fetched image
+- **fonts:** replace the _pl fonts with pan-European Latin _eu fonts
+- **events:** place the notification text per event and back it on a card
+- **events:** show a per-event graphic on the notification screen
+- **sd:** show the album art embedded in an MP3 tag
+- **sd:** build the album cover from a folder's cover.jpg
+- **sd:** show a per-folder album cover on the SD player
+- **themes:** apply installed themes from SD without the network
+- **assets:** save knob artwork to SD as RGB565A8 with transparency
+- **assets:** keep PNG transparency in SD .bin artwork
+- **weather:** add Celsius/Fahrenheit unit selection
+- **trace:** add runtime diagnostic-log flags
+
+### Changed
+- **www:** show the event graphic by name, not its net<N> spelling
+- **libjpeg:** share one JPEG-to-RGB565 decoder
+- **www:** move diagnostics into its own settings tab
+
+### Fixed
+- **www:** make the preview fit narrow screens and survive fullscreen exit
+- **ui:** scroll overlong SD, BT and browser labels instead of wrapping
+- **touch:** use word-aligned 4-byte SPI buffers for XPT2046 conversions
+- **display:** bound the async flush waits and move flush_ready into IRAM
+- **www:** size the per-screen wallpaper slot picker at page load
+- **sd:** convert folder artwork at playback start, retry when a JPEG appears
+- **ui:** keep the update and OTA prompts on a plain background
+
+## [0.49.0] - 2026-08-07
+
+### Added
+- **www:** show elapsed time and motion while the SD card formats
+- **sdcard:** format the SD card from the web file manager
+- **www:** install full themes from the online gallery
+- **assets:** fetch knob artwork from the internet into PSRAM asset slots
+- **web:** warn about manual-only auto refresh where internet slots are assigned
+- **ui:** follow the playing source to its player screen
+- **espnow:** report pilot link activity and make the link opt-out
+- **web:** copy files in sd-editor and deep-link to it from sd-player
+- **web:** copy files in sd-editor and deep-link to it from sd-player
+- **espnow:** serve the pilot's settings and diagnostics over the link
+- **web:** show MQTT broker connection state in the diagnostics panel
+- **diag:** report chip temperature on the diagnostics panel and in /api/diag
+- **wallpaper:** fetch the boot batch before the radio autostart instead of after
+- **www:** assign a gallery wallpaper straight into an internet slot without SD
+- **wallpaper:** hold up to ten internet wallpapers in PSRAM slots, one per screen
+- **wallpaper:** hold up to six internet wallpapers in PSRAM slots, one per screen
+
+## [0.48.0] - 2026-08-03
+
+### Added
+- **www:** add a Diagnostics panel with copyable report to the System tab
+- **diag:** add Diagnostics screen and /api/diag with PSRAM and firmware info
+- **espnow:** browse and play the SD card by index from the pilot
+- **wifi:** show RSSI in scan results and add a network picker to the settings page
+- **www:** confirm before a Radio Browser icon replaces an existing one
+- **www:** name station-icon files after the station, not just its key
+- **www:** assign station icons from .bin files already on the SD card
+- **network:** retry the saved WiFi in the background instead of parking in AP
+- **ui:** recognise the exit swipe by drag distance on lists and the equalizer
+- **ui:** give the playlist and SD browser lists their own row colours
+- **ui:** format the MDY date as MM-DD-YYYY instead of MM/DD/YYYY
+- **wallpapers:** file list-screen wallpapers under a playlist-sd-browser category
+- **ui:** give both list screens their own wallpaper and a virtualised list
+- **playlist:** add per-screen wallpaper and a resizable, virtualised list
+- **vu:** add per-screen colour overrides for all three VU meters
+- **vu:** give the needle meters their own vu_needle_bg plate colour
+- **vu:** replace the needle meter frame with a vu_bg plate
+
+### Changed
+- **layout:** pair each screen tab with the list screen it opens
+- **layout:** drop the Move button from the wallpaper picker's SD browser
+- **theme:** drop the VU palette fields in favour of per-screen overrides
+
+### Fixed
+- **http:** reclaim HTTP sockets via LRU purge and TCP keep-alive
+- **ui:** keep a sideways swipe across the volume slider from moving it
+- **diag:** spell out the memory figures on the Diagnostics screen
+- **main:** include ui_profile.h for DISPLAY_WIDTH/HEIGHT in network_services
+- **ui-list:** detect the exit swipe on list rows instead of relying on LVGL gestures
+- **ui-list:** treat a sideways drag on a list row as a swipe, not a tap
+- **layout:** actually hide switched-off form groups and nest header sub-settings
+- **web:** drop the wallpaper cache when a wallpaper .bin is overwritten
+- **layout:** mirror layout presets onto the wallpaper's own folder
+
+## [0.47.1] - 2026-07-29
+
+### Fixed
+- **ui:** define the test-tone action outside the touch guard so no-touch variants build
+
+## [0.47.0] - 2026-07-29
+
+### Added
+- **espnow:** add the ESP-NOW pilot link with a web-triggered pairing window
+- **display:** add a red/blue channel-order toggle and fix the ST7789V baseline to RGB
+- **wallpapers:** install online gallery wallpapers into per-screen category folders
+- **wallpapers:** file uploads and saved internet wallpapers per panel resolution
+- **audio:** add mono downmix mode with web and on-device toggle
+- **touch:** runtime touch orientation independent of display flip
+- **layout:** add online asset gallery with source-size install defaults
+- **layout:** add online gallery to Assets tab
+- **www,ui:** font colour overrides for home date/netinfo/strip labels
+- **www,ui:** font colour overrides for radio/sd/bt info + bt track labels
+- **www,ui:** per-wallpaper font colour overrides for radio/sd/bt labels (0=inherit theme)
+- **www,ui:** per-wallpaper clock time colour override (0=inherit theme)
+- **www:** add preview button to SD .bin picker modal (EQ + screen knob images)
+- **www:** add mkdir + move file actions to shared SD browser, enable in Assets tab
+- **www:** add mkdir + move file actions to shared SD browser, enable in Assets tab
+- **layout:** add folder navigation (parent + subdirs) to Assets tab file browser
+- **wallpapers:** add Equalizer category to online gallery + website catalog
+- **layout:** General-tab wallpaper upload scaled to panel res without assigning
+- **eq:** movable+resizable sliders group box, toggle freq labels & legend, positionable legend
+- **eq:** make response-curve box movable + resizable (eq_curve_x/y/w/h) in layout editor
+- **eq:** make active-value label movable (eq_info_x/y) with configurable font in layout editor
+- **eq:** drop title, move value to top-left, add live response curve (spline) top-right
+- **eq:** user-defined knob width (eq_knob_w) and knob-only mode for band sliders
+- **eq:** Open-EQ hotspot action with return-to-caller
+- **eq:** Equalizer layout tab (shared knob image + per-screen wallpaper), open-EQ hotspot action, touch hotspots 6→8
+- **audio:** configurable channel-test tone (pink/white/sine, duration) with web UI Play button
+- **audio:** built-in stereo channel-test tone (pink noise) in Settings→Audio for SD-less HW check
+- **ui:** per-slider volume max — remap slider travel to 0..max % for fine control on room-loud panels
+- **ui:** scale the volume-slider knob image to the slider size (bilinear lv_bin_image_load_scaled)
+- **ui:** knob image for the volume slider — SD .bin via Assets tab + per-field SD picker
+- **ui:** knob-only mode for the volume slider (wallpaper draws the track)
+- **ui:** explicit horizontal/vertical orientation for the volume slider
+- **ui:** draggable on-screen volume slider on radio/SD/BT screens with layout editor support
+
+### Changed
+- **eq:** spread bands across an editable group span for pixel-exact edges
+- **eq:** derive sliders-group size from slider width, height and band gap
+- **wallpapers:** name the device-saved wallpaper folder "internet"
+- **web:** unify settings backup format between settings and setup pages
+- **layout:** unify asset size selection for uploads and gallery installs
+- **www:** extract shared SD folder browser (sdbrowse.js) used by wallpaper/knob/logo/assets pickers
+
+### Fixed
+- **espnow:** fill the first line from the folder when SD is the source
+- **layout:** place label boxes from real LVGL font metrics instead of nominal size
+- **layout:** restore live resize preview broken by a stale wVal reference
+- **radio:** set station name on URL playback so podcasts don't keep the previous station
+- **www:** show .bin preview above SD picker modal + add preview to wallpaper browser
+- **layout:** start all settings menu groups collapsed instead of auto-opening the first
+- **eq:** band sliders ignore gesture bubble so drag updates value (taps worked, drag froze)
+- **web:** group layout-editor form into categories — collapsible VU-meters group + section headers so widgets are easier to find
+- **ui:** square volume-slider corners to stop large sliders hanging the LVGL renderer
+- **web:** tidy the Assets uploader — styled file picker and standalone Upload button
+- **web:** style the Assets tab inputs and the knob-image path field in the layout editor
+- **ui:** stop volume-slider drags from bubbling up as screen swipe gestures
+- **ui:** hide the themed knob under the volume-slider knob image (knob_only artwork)
+- **ui:** label plate padding no longer triggers scroll on fitting text
+
+## [0.46.0] - 2026-07-23
+
+### Added
+- **web:** net wallpaper preview in layout editor; move brightness slider to General tab
+- **web:** preview fetched internet wallpaper in layout editor and Internet tab
+- **ui:** reverse rotation option for animated wheels on radio and SD screens
+- **ui:** colour zones (green/orange/red) in stereo bar VU with per-profile toggle
+- **radio:** support MP3 audio in HLS TS segments via PMT codec probe
+- **ui:** swap Internet/General tab
+- **layout:** link General tab to gradient/solid colours in Theme
+- **layout:** move background + internet wallpaper config into layout editor tab
+- **layout:** stereo bar VU widget
+- **layout:** independent metadata elements (station/title, samplerate/channels/bitrate/volume) with free X/Y on radio, SD and BT screens
+- **layout:** per-resolution preset path + preset housekeeping + online wallpaper gallery
+- **ui:** store wallpaper layout presets per display resolution
+- **web:** add Wallpapers subtab to display settings
+- **web-ui:** add online wallpaper gallery with upload renaming
+- **web:** wallpaper upload in layout.html per-screen picker (shared LvBin.uploadImage)
+- **web:** wallpaper upload in layout.html per-screen picker (shared LvBin.uploadImage)
+- **ui:** VU meters rest when another source owns the audio path (owner-gated bars + needles)
+- **ui:** BT screen touch hotspots + ctrl overlay toggle (firmware + web layout editor)
+- **ui:** touch hotspots on BT screen (bt_touch_hotspots + web layout editor)
+- **ui:** per-label width + free X/Y for home strip station/title (replaces shared clock_strip_label_w)
+- **ui:** free X/Y drag for home strip station/title labels (new clock_strip_*_x profile fields)
+- **www:** orphaned layout-preset checker with delete in Theme settings
+- **ws:** broadcast resolved media source in state JSON
+- **media:** add source switch (radio/SD/BT) via WS source= cmd and MQTT cmd/source
+- **ui:** add playlist and SD browser hotspot actions
+- **ui:** move label background opacity to per-screen profiles
+- **ui:** per-screen wallpaper override in ui_profile + section-scoped layout presets
+- **web:** auto-apply wallpaper layout preset checkbox in layout editor
+- **web:** move files/folders between SD directories in sd-editor and manager
+- **ui:** PLAY_PAUSE hotspot action — in-place pause on SD, play/stop on radio/BT
+- **ui:** PLAY_PAUSE hotspot action — in-place pause on SD, play/stop on radio
+- **ui:** needle VU follows volume knob (sqrt scale) + gamma swing tuning
+- **ui:** SD player layout rework — movable title box, independent time row and progress bar
+- **ui:** center-anchored X position for SD player track title (sd_title_x)
+- **ui:** SD player progress bar as independent element (sd_bar_x/y) + works without time row
+- **ui:** independent Y position for SD player time row (sd_time_y) + web editor group
+- **ui:** needle VU dynamics tuning + docs (README, website)
+- **ui:** analog needle VU meter — two independent L/R meters over wallpaper
+
+### Changed
+- **www:** move orphaned layout-preset checker from Theme settings to Layout editor Presets tab
+- **ui:** drop dead clock_panel_* fields (leftover of removed standalone clock screen)
+
+### Fixed
+- **layout:** close online wallpaper gallery on screen tab switch
+- **layout:** internet wallpaper outranks all SD/gradient backgrounds
+- **ui:** stop encoder_task stack overflow from logging on full event queue
+- **ui:** reparent home station/title labels to screen so they aren't clipped to strip bounds
+- **ui:** don't clip station/title labels to home strip bounds
+- **media:** route plain next/prev/play/stop to the active source via shared media_control dispatcher
+- **www:** release input focus when selecting layout placeholders
+- **ui:** grow wallpaper path buffers to 128 chars (long filenames were silently truncated)
+- **sd:** strip file extension from fallback track title on SD player screen
+
+## [0.45.0] - 2026-07-17
+
+### Added
+- **www:** per-wallpaper layout presets saved to SD (/wallpapers/layouts)
+- **ui:** per-screen option to disable tap controls overlay (radio/SD)
+- **ui:** optional transparent VU background (vu_transparent profile flag)
+- **events:** group playback start and stop as linked schedules
+- **web:** add daily timetable view for playback schedules
+- **web:** add location search to weather settings
+- **ui:** toggle radio layout elements on device
+- **ui:** add on-device radio layout editor
+- **ui:** allow positioning radio station icon and constrain long metadata
+- **ui:** add layout-configurable touch hotspots
+
+### Changed
+- **ui:** native-size hub overlay glyphs instead of transform_scale
+- **audio:** low-bandwidth HLS variant, cheaper 48k resample, per-task CPU dump
+- **events:** patch-style playback PUT and lean enable toggle
+- **web:** organize touch hotspots into nested groups
+
+### Fixed
+- **www:** show voice files check only on Events tab, not Playback
+- **ci:** freeze clean-tree version before variant switch so releases aren't stamped -dirty
+- **ui:** long press to exit wifi screen
+
+## [0.44.0] - 2026-07-15
+
+### Added
+- **ui:** allow hiding radio track title
+- **ui:** allow individual animated wheels to be hidden
+- **web:** add wallpaper picker to layout editor
+- **web:** add keyboard nudging to layout editor
+- **web:** show active wallpaper in layout preview
+- **web:** add browser wallpaper conversion and SD upload
+- **ui:** add radio station icon visibility toggle
+- **ui:** add configurable radio playback status visibility
+- **ui:** add configurable animated wheels widget
+- **web:** add station icon audit and cleanup
+- **display:** add ST7789V 320x240 driver
+- **ui:** add wallpaper fetch and SD save actions to hub overlay
+- **ui:** add wallpaper fetch button to hub overlay
+- **ui:** add configurable radio station icon size
+- **radio:** add SD-backed station icons with playlist web management
+- **ui:** add configurable station strip background opacity
+- **web:** improve layout editor with grouped settings and semantic placeholder colors
+- **web:** compact layout editor settings into collapsible groups
+- **ui:** global label-background plate for readability over wallpaper (all screens)
+- **ui:** global label-background plate for readability over wallpaper (all screens)
+- **ui:** optional background plate behind home weather widget
+- **ui:** adjustable opacity for home clock-label background plate
+- **www:** layout editor warning to Reset after firmware layout changes
+- **weather:** condition icons via Weather Icons font (day/night variants)
+- **ui:** AM/PM time format on radio/SD/BT clock widget
+- **weather:** OpenWeatherMap as alternative provider
+- **weather:** on-screen weather widget (Open-Meteo) + /api/weather + settings tab
+- **web:** redesign station discovery calls to action
+- **www:** surface station search — top of playlist editor + link on index
+- **www:** radio-browser.info station search in playlist editor
+- **www:** atlascube.net link under the logo on all web UI pages
+- **setup:** one-file settings.json + pin map export/import, unified /setup buttons
+- **scrsaver:** option to block screensaver while radio/SD/BT is playing
+
+### Changed
+- **ui:** move wallpaper actions to third hub overlay row
+
+### Fixed
+- **ui:** rebuild animated wheels library against LVGL 9.2.2
+- **web:** remove white padding from station icons
+- **ui:** tighten weather and clock label backgrounds
+- **ui:** use pill background for weather widget
+- **www:** clip placeholder sample text to its box in layout editor
+- **www:** layout editor screen tabs order — home, sd, radio, bt
+- **scrsaver:** normalize photo dir path (case/slash) + path example in web hint
+
+## [0.43.0] - 2026-07-12
+
+### Added
+- **display:** add ST7789V 320x240 SPI driver and touch-less firmware variant
+- **events:** stop-playback option for playback schedules (station -1 sentinel)
+- **setup:** hide/dim pin sections not matching compiled drivers + show-all toggle
+- **setup:** hide pin sections not matching compiled drivers + show-all toggle
+- **setup:** hide touch/LCD pin sections not matching compiled drivers
+- **web:** hint + link to MQTT tab when MQTT screensaver style selected
+- **ui:** wallpaper dim 0-80% baked at load (SD + internet, pristine sources) + web slider
+- **web:** move Screen layout editor panel to top of Display/Panel + add hint
+- **ui:** theme-aware bg plates under home clock labels + clock_label_bg profile toggle
+- **web:** live resolved-URL preview for internet wallpaper + readable field hints
+- **ui:** save fetched internet wallpaper to SD
+- **ui:** on-screen status pill during internet-wallpaper fetch
+- **ui:** scheduled internet-wallpaper refresh (on-boot/daily) + persisted source URL
+- **web:** internet wallpaper source presets (APOD/picsum/LoremFlickr/Cataas/PlaceDog)
+- **ui:** internet wallpaper — on-device fetch + vendored libjpeg decode (progressive JPEG OK)
+- **ui:** MM/DD/YYYY date format option + NTP tab reworked into Date & Time
+- **ui:** optional MM/DD/YYYY date format on home screen + web toggle
+- **ui:** optional 12-hour AM/PM clock format on home screen + web toggle
+- **ui:** warn self-built (-dirty) firmware on update prompt that changes will be replaced
+- **ui:** VU meter AGC — bars track programme level instead of fixed dB window
+
+### Changed
+- **web:** merge Theme tab into Display as Panel/Theme sub-tabs
+
+### Fixed
+- **ui:** radio VU at bottom edge, state line above (all VU profiles)
+- **web:** events list sorted by next occurrence instead of random id
+- **ui:** SD VU at bottom edge, folder above (all VU profiles)
+- **web:** settings export/import bundles only .json config files
+- **web:** sort directories first in wallpaper/logo SD file picker
+- **ui:** explicit background choice evicts the fetched internet wallpaper
+- **web:** wallpaper preset select mirrors the URL field (match Android behaviour)
+- **ui:** readable error for progressive JPEGs exceeding PSRAM (coef-size pre-check)
+
+## [0.42.0] - 2026-07-10
+
+### Added
+- **wifi:** WiFi setup reachable at runtime via Settings → System → WiFi (touch builds); STA scans without disconnecting, screen shows live SSID/IP, swipe backs out
+
+### Fixed
+- **ws:** malformed `set_eq_10` bands array crashed the device (NULL deref)
+- **ws:** cap incoming frame size at 4 KB (client-supplied length went straight to malloc)
+- **state:** long station/podcast URL could overflow the app_state log buffer (stack corruption)
+- **web:** JSON replies crash-proofed against cJSON heap exhaustion (send_json_or_500, guarded WS broadcasts)
+- **settings:** volume/brightness clamped in setters (unvalidated WS/HTTP values reached the audio engine)
+- **settings:** concurrent saves from different tasks could corrupt settings.json (now serialized)
+- **events:** a voice notification interrupting another no longer loses the source to restore
+
+### Changed
+- **www:** split System tab out of Tools, group Display panels in settings
+
+## [0.41.0] - 2026-07-09
+
+### Added
+- **updater:** show remote www pull progress on SCREEN_UPDATE
+- **updater:** remote-triggered update via POST /api/update for Android app
+- **updater:** log fw/www update outcomes to /config/update.log
+
+### Fixed
+- **fonts:** add SD card glyph to montserrat_14_pl for mode indicator
+- **updater:** update.log www line logs hash + matched fw, not stamp metadata
+
+## [0.40.0] - 2026-07-09
+
+### Added
+- **updater:** on-device web UI pull from SCREEN_UPDATE (no reboot)
+- **updater:** flag stale web UI on SCREEN_UPDATE after boot version check
+- **updater:** on-device auto-update — boot check, SCREEN_UPDATE, pull-OTA
+
+### Fixed
+- **web:** skip HTML recompress + version stamp rewrite when UI hash unchanged
+- **ui:** update/OTA screens leaked flex layout onto shared screen object
+
+## [0.39.0] - 2026-07-06
+
+### Added
+- **podcast:** finite-stream playback, episode title + mid-file resume
+- **sd:** add playback progress bar + folder/info show toggles on SD player screen
+- **sd:** show elapsed/total time on SD player screen (MP3/WAV duration + wall-clock position)
+
+### Changed
+- **pins:** changed default pins for XPT2046
+
+### Fixed
+- **uv:** narrow band to 150Hz–13kHz so top bar is audible + low bars gang less
+- **audio:** run file-end restore on internal-stack task to avoid flash-cache panic on audio_play's PSRAM stack
+
+### Other
+- **vu:** raise meter low edge 60→120Hz so bass bars stop ganging together
+
+## [0.38.0] - 2026-07-05
+
+### Added
+- **web:** add config settings export/import (JSON backup) to Tools
+- **events:** raise EVENTS_MAX 100→200 (buffers already in PSRAM)
+
+### Fixed
+- **web:** cache-bust JS/CSS with ?v=<www-version> so UI updates aren't masked by stale browser cache
+- **web:** retry per-file www uploads to survive transient connection resets
+- **web:** style Export/Import settings buttons like the other tool buttons
+- **web:** stream file uploads through gzip so large UI files (settings.js) aren't capped at 64 KB
+
+## [0.37.0] - 2026-07-04
+
+### Added
+- **events:** EV_CALENDAR mirror type + bulk PUT /api/events/calendar
+- **layout:** calendar widget fields on Home tab (renamed from Clock)
+
+### Fixed
+- **playlist:** move station list to /config so a www update can't clobber it
+
+## [0.36.0] - 2026-07-04
+
+### Added
+- **events:** add voice-file audit on events.html cross-checking events ↔ /voice
+- **display:** add SD player quick-switch button on settings display tab
+- **wifi:** encoder navigation on the on-screen WiFi setup
+
+### Changed
+- **hls:** rebuild icy_stream lib with TLS keep-alive segment reuse
+- **tls:** re-enable hardware AES/SHA/MPI to fix HLS stutter + IDLE0 watchdog
+
+### Fixed
+- **fps:** toggle HIDDEN flag on the auto-created perf monitor to kill ghost overlay
+- **touch:** guard XPT2046 dead-MISO ghost-press + seed 320x240 calibration
+- **wifi:** show AP password on touch WiFi setup screen
+
+## [0.35.2] - 2026-07-02
+
+### Fixed
+- **touch:** make XPT2046 variant build under -Werror
+
+## [0.35.1] - 2026-07-02
+
+### Fixed
+- **ci:** drop inline comment on TOUCH_XPT2046 define so variant selection works
+
+## [0.35.0] - 2026-07-02
+
+### Added
+- **ui:** runtime FPS-overlay toggle via web UI
+- **vu:** snappier decay + less gamma compression for more musical VU
+- **wifi:** on-screen WiFi provisioning on the AP setup screen
+- **security:** store WiFi/MQTT passwords in NVS, not config JSON
+- **touch:** add XPT2046 resistive (SPI) touch driver
+- **display:** live colour-invert toggle + make 180° flip live
+
+### Changed
+- **ci:** touch-controller suffix in all firmware variant names
+- **ui:** solid overlay bg — fix sluggish touch over live VU
+- **ui:** VU meter delta rendering — redraw only the moving bar tips
+- **ui:** non-blocking VU meter — custom-draw + async DMA flush
+
+## [0.34.2] - 2026-06-27
+
+### Fixed
+- **web:** make www version hash line-ending independent
+
+## [0.34.1] - 2026-06-27
+
+### Changed
+- restructure stream component internals
+- reorganize audio and stream internals
+
+## [0.34.0] - 2026-06-27
+
+### Added
+- **web:** surface web-UI build stamp + expected hash in settings/setup
+- **web:** show web-UI version in settings + reorder setup OTA/web-UI
+- **web:** label the www stamp time as UTC
+
+## [0.33.0] - 2026-06-27
+
+### Added
+- **web:** include time in the www stamp
+- **web:** add fw-version + date to the www stamp
+
+### Fixed
+- **flash:** erase otadata after USB app-flash
+- **flash:** erase otadata after USB app-flash
+- **web:** web UI upload uses PUT, guard against .bin, style www button
+
+## [0.32.0] - 2026-06-27
+
+### Added
+- **web:** add OTA upload to setup page, web UI upload to tools tab
+- **web:** show www_expected hash in /api/state + setup.html warning
+
+## [0.31.2] - 2026-06-27
+
+## [0.31.1] - 2026-06-26
+
+### Fixed
+- **web:** track www_version.txt so it ships in release zip
+- **ui:** lighten hub overlay button fill so circles stand out from dim layer
+- **web:** add "Back to AtlasCube" link to setup.html (top + bottom)
+- **web:** make GitHub link readable in setup.html + point straight to www.zip
+
+## [0.31.0] - 2026-06-26
+
+### Added
+- **web:** publish www.zip in release + link from stale-UI warning
+- **web:** detect stale web UI after app-only OTA
+- **web:** add first-run welcome modal + help page
+- **setup:** collapse Wi-Fi form when already connected (STA)
+- **ui:** encoder-driven hub overlay on Home
+- **ui:** hub overlay widget buttons adjusted
+
+### Changed
+- **settings:** data-driven sections for on-device settings screen
+- **setup:** serve unified setup.html in AP mode, drop wifi_setup.html
+
+## [0.30.0] - 2026-06-25
+
+### Added
+- **display:** add 180° screen flip option
+- **ui:** wire BT transport in controls overlay + faithful play state
+- **ui:** add Clock/Radio nav-ring show/hide toggles
+- **ui:** add unified Home hub screen with source-aware overlay
+- **settings:** group colour palette into labelled sections
+- **theme:** per-theme VU meter colours (vu_bg/vu_bar)
+
+### Changed
+- **ui:** tighten settings row height across graphical profiles
+- **ui:** remove standalone clock screen, superseded by Home hub
+
+### Fixed
+- **ui:** show BT artist/title in Home strip instead of radio station
+
+## [0.29.0] - 2026-06-24
+
+### Added
+- **setup:** export/import pin map to/from JSON file
+
+## [0.28.0] - 2026-06-24
+
+### Added
+- **setup:** group GPIO pins into labelled sections with descriptions
+
+## [0.27.0] - 2026-06-24
+
+### Added
+- **pins:** make I2S pins runtime-configurable too
+
+### Fixed
+- **pins:** handle -1 (absent peripheral) without crashing
+
+## [0.26.0] - 2026-06-24
+
+### Added
+- **pins:** runtime GPIO pin map configurable via /setup
+- **ui:** adjust vu meter
+- **eq:** touch support for equalizer
+- **eq:** touch support for equalizer band sliders
+
+### Changed
+- **ui:** drop unused physical-button inputs
+
+### Fixed
+- **ui:** sync controls overlay play/stop with external state changes
+- **eq:** don't clip round slider knobs at min/max
+- **touch:** keep polling while finger held so swipes aren't fragmented
+
+## [0.25.0] - 2026-06-22
+
+### Added
+- **ui:** VU meter on SD player screen + per-screen toggle
+- **ui:** real-audio FFT spectrum VU meter on the radio screen
+- **audio:** play segmented HLS (.m3u8) radio streams
+- **scripts:** add "Update from git" menu option to build-flash.py
+- **ui:** toggle to show/hide SD player screen in nav ring
+- **ui:** decorative "Fake VU" animated background
+
+### Changed
+- **ui:** remove animated "Fake VU" background
+
+### Fixed
+- **eq:** narrow EQ slider range to -13..+6 dB
+- **mem:** reclaim ~84 KB internal DRAM to stabilize HTTPS radio
+- **ui:** VU background follows theme and costs less on CPU1
+- **web:** switch to wallpaper clears VU sentinel path
+- **audio:** stop socket exhaustion on live HLS streams
+- **web:** keep UI loadable while radio HTTPS stream runs
+- **web:** drag playlist rows only from the grip handle
+- **ntp:** apply saved timezone and servers on boot
+
+## [0.24.0] - 2026-06-18
+
+### Added
+- **ui:** controls widget on screen clock
+- **ui:** center-anchor clock_widget and BT/radio screen labels
+- **ui:** anchored auto-width labels that don't wander on text change
+- **ui:** add idle auto-dim screensaver
+
+### Fixed
+- **ui:** clock controls resume SD instead of starting radio
+
+## [0.23.0] - 2026-06-17
+
+### Added
+- **ui:** custom splash logo from SD
+- **web:** preview LVGL .bin images in browser
+- **ui:** add SD wallpaper background option
+- **web:** add config partition to the file editor
+- **web:** replace "back to radio" with bottom toolbar nav on events/settings
+- **sd-player:** on-screen control changes pause to stop/play toggle
+
+## [0.22.0] - 2026-06-16
+
+### Added
+- **web:** add cross-page toolbar nav to bt.html and sd-player.html
+- **events:** timed playback schedules (radio or SD file/folder)
+- **audio:** auto-detect stream codec from Content-Type, relink on mismatch
+
+### Changed
+- **events:** replace alarm type with playback schedules
+
+### Fixed
+- **web:** style "Use this folder" button as primary in events.html
+
+## [0.21.2] - 2026-06-15
+
+### Fixed
+- **build:** default to esp32s3 target on a fresh checkout
+- **compress-web:** use ASCII arrow so logging doesn't crash on cp1250
+
+## [0.21.1] - 2026-06-15
+
+### Changed
+- move playlist.csv from config to www partition
+
+## [0.21.0] - 2026-06-15
+
+### Added
+- **build-flash:** add "first flash" option for blank chips
+- **build-flash:** group the menu
+- **build-flash:** add full chip erase menu option
+- **build-flash:** prompt for the serial port when -p is omitted
+- **scripts:** build-flash.py self-sets-up ESP-ADF on first run (single user entry) + scripts/README
+- **fs:** isolate settings on a config partition (www/config split) + built-in setup page
+- **ui:** ui profile for sd player screen
+- **ui:** on-device SD music player + file browser (LVGL)
+- **audio:** ID3 track titles + resume SD music after voice notification
+
+### Changed
+- **scripts:** split toolchain setup into env_setup.py, move build.py → ci/build.py; build-flash.py is the sole user script
+- **ram:** recover internal RAM + drop deferred settings write
+
+### Fixed
+- **ui:** show now-playing only for the active source
+
+## [0.20.0] - 2026-06-14
+
+### Added
+- **web:** English SD player UI + embedded EQ modal
+- **sd:** pause/resume + shuffle/repeat
+- **sd:** folder browsing + EQ link on the SD player
+- **web:** SD Player link on home + volume on the SD page
+- **sd:** folder-queue music player with web UI
+- **audio:** WS play_file test hook for SD music playback
+- **ws:** accept BT transport commands over plain-text WS
+
+### Changed
+- **audio:** split audio_player into engine + net/file source layers
+- **web:** rename file tools for clarity, file manager first
+- **web:** rename file tools for clarity — spiffs-editor / sd-editor / manager
+
+### Fixed
+- **audio:** BT↔SD source exclusivity + httpd stack overflow
+
+### Other
+- **ws:** drop plain-text BT transport handlers
+
+## [0.19.0] - 2026-06-14
+
+### Added
+- **web:** browsable folder tree in the SPIFFS pane + SD play legend
+- **web:** browsable folder tree in the SPIFFS panel
+- **web:** show SPIFFS and SD usage in the file manager
+- **events:** flat voice clip files, drop the per-clip folder
+- **web:** play voice clips from the events list rows
+- **web:** inline WAV/MP3 playback in the SD file manager
+- **voice:** readable slug folder names, drop text sidecar
+
+### Fixed
+- **events:** widen sound path buffer for readable clip folder names
+- **web:** label SD card consistently in file manager
+
+## [0.18.0] - 2026-06-13
+
+### Added
+- **ui:** boot splash overlay with firmware version + STA IP
+- **bt:** per-module AT command descriptor, web sync/transport controls, codec & sample-rate info
+- **web:** move layout editor link from Tools to Display tab
+- **web:** add icon legend for each file-manager panel
+- **web:** add "backup all SPIFFS files" to file manager
+- **web:** per-file copy buttons in file manager
+- **web:** add dual-pane SPIFFS↔SD file manager with inline editor
+- **screensaver:** overlay clock on photo frame
+
+### Fixed
+- **web:** stop file-manager editor modal colliding with shared .modal
+
+## [0.17.0] - 2026-06-13
+
+### Added
+- **display:** add ILI9488 480x320 driver variant
+- **buzzer:** allow disabling buzzer with BUZZER_PIN -1
+- **events:** self-describing voice clips — sidecar text + WWW preview
+
+## [0.16.0] - 2026-06-12
+
+### Added
+- **events:** voice notifications - playing WAV from SD at a given time
+- **screensaver:** apply photo-frame config live
+- **web:** add mkdir + rename to SD file manager
+- **web:** add New folder (mkdir) to SD file manager
+- **sd:** enable LVGL POSIX fs (S:→/sdcard); finalize SD/display pins
+- **web:** SD card file manager
+- **sd:** add SDMMC 1-bit SD card mount
+
+### Changed
+- **screensaver:** partial invalidation + lower LVGL priority
+
+### Fixed
+- **mem:** persist WiFi RAM tuning in defaults; revert LVGL to prio 5
+- **sd:** move SD to GPIO 12/13/11, display to 39/40
+- **web:** correct SD file manager build errors
+
+## [0.15.0] - 2026-06-11
+
+### Added
+- **audio:** exclusive audio source auto-switch (Radio ⇄ Bluetooth)
+- **clock:** optional IP + <hostname>.local on the clock screen
+- **ws:** expose WiFi RSSI in state broadcast
+- **settings:** rename WiFi tab to Network
+- **mdns:** advertise device as <hostname>.local
+
+### Fixed
+- **playlist:** change max entry to 512 on the web
+- **bt:** make exclusive auto-switch reliable
+
+### Added
+- **bluetooth:** exclusive audio source — starting BT play stops the radio and starting the radio pauses the phone, with automatic source switching (toggleable, default on; in web BT panel and on-device Settings)
+
+## [0.14.0] - 2026-06-10
+
+### Added
+- **playlist:** increase max entries
+- **radio:** resume playback on boot if it was playing
+- **screensaver:** add digital clock screensaver
+- **build:** prompt whether to bundle the web UI into storage
+
+### Changed
+- **audio_board:** centralize I2S pins in defines.h
+
+### Fixed
+- **radio:** play http SHOUTcast streams via raw socket
+- **build:** don't clobber a symlinked/junctioned board in ESP-ADF
+
+## [0.13.0] - 2026-06-07
+
+### Added
+- **ota:** auto-rollback on a failed update
+- **ota:** web-push firmware update with on-device progress
+- **web:** audio source switch, move device screen to settings
+- **ui:** move theme & background toggles to Colors tab, rename it to Theme
+- **ui:** configurable clock & now-playing fonts in layout editor
+
+### Fixed
+- **ota:** render progress screen before the flash erase storm
+
+## [0.12.0] - 2026-06-02
+
+### Added
+- **ui:** dithered gradient screen background
+
+### Fixed
+- **radio:** re-anchor curr_index after playlist edit
+- **scripts:** guard flash-web.py against stale sdkconfig on variant switch
+
+## [0.11.0] - 2026-06-01
+
+### Added
+- **night:** wake/sleep radio actions on the dimming schedule
+
+### Changed
+- **ui:** move night mode into its own Sleep & Wake tab
+
+## [0.10.0] - 2026-06-01
+
+### Added
+- **ui:** centralize screen navigation into an editable ring table
+
+### Changed
+- **scripts:** unify build tooling as Python under scripts/
+
+### Fixed
+- **web:** no-cache for mutable data files (playlist/configs)
+
+## [0.9.3] - 2026-05-31
+
+### Fixed
+- **build:** set esp32s3 target in build.py; add Windows build guide
+
+## [0.9.2] - 2026-05-31
+
+## [0.9.1] - 2026-05-30
+
+### Fixed
+- **ui:** ignore layout JSON saved for a different LCD size
+
+## [0.9.0] - 2026-05-30
+
+### Added
+- **ui:** fonts added
+- **ui:** auto-fit splash logo to the panel
+- **display:** add SSD1322 256x64 mono variant
+- **web:** show firmware version in UI and wifi setup
+
+### Changed
+- **screensaver:** changed default
+
+### Fixed
+- **scripts:** default flash-web.ps1 to flash when no args
+
+## [0.8.1] - 2026-05-30
+
+### Fixed
+- **build:** ship SPIFFS web assets in CI/release binaries
+
+## [0.8.0] - 2026-05-29
+
+### Added
+- **build:** select flash size per variant via defines.h
+- **ui:** event indicator on radio screen + live refresh on add/edit/delete
+- **events:** per-alarm volume override
+
+### Fixed
+- **wifi:** improve AP compatibility with modern phones
+- **ui:** adjust screen radio
+- **ui:** controls overlay reads mode from owner, not app_state
+
+## [0.7.0] - 2026-05-28
+
+### Added
+- **web:** group editors in Tools tab, rename EQ button to Radio EQ
+- **display:** add ST7796U 480x320 driver and UI profile
+- **web:** move Web files editor to a new Tools settings tab
+- **web:** add Clear button and follow/pause auto-scroll to BT console
+- **web:** move Bluetooth panel to dedicated bt.html page
+- **ui:** dark/light theme for clockhands and dashboard screensavers
+- **ui:** touch support in settings + global idle-timer hook
+- **ui:** modified ui profile for ILI9341
+- **touch:** FT6336U driver, rebuild touch orientation
+- **events:** alarm type with radio stream wake-up
+- **display:** night dimming schedule
+
+### Changed
+- **config:** pick HW variant only in defines.h
+
+### Fixed
+- **display:** shrink ST7796 LVGL buffer to fit internal DRAM budget
+- **web:** show Dashboard widget settings only when Dashboard style selected
+
+## [0.6.0] - 2026-05-22
+
+### Added
+- **ui:** mqtt screensaver
+- **www:** pretty-print and validate JSON in file editor
+- **web:** rebuild active screen after MQTT config save
+- **mqtt:** mqtt widgets
+- **mqtt:** mqtt client
+- **ui:** controls widget resets screensaver idle timer
+
+### Changed
+- **widget:** changed control widget auto hide time
+- **mqtt:** remove client id from base topic
+
+### Fixed
+- **mqtt:** wrap widget command payload in JSON when json_path is set
+- **ui:** clear scrollable flag for main screens
+- **screensaver:** disable screensaver in wifi ap mode
+
+## [0.5.0] - 2026-05-18
+
+### Added
+- **ui:** Touch closes the event notification screen
+- **ui:** Touch closes the screensaver
+- **playlist:** play station on row tap
+- **ui:** volume widget and gestures
+- **ui:** controls overlay widget
+- **touch:** CST816D capacitive driver
+- **bluetooth:** audio metadata
+- **screensaver:** alarms for dashboard
+- **screensaver:** dashboard and blank
+- **ui:** add screensaver entry to settings menu
+
+### Changed
+- **screensaver:** live update setting for dashboard screensaver
+- **screensaver:** remove enable status (0s - OFF)
+
+### Fixed
+- **bluetooth:** fixed refresh title
+
+## [0.4.0] - 2026-05-13
+
+### Added
+- **ui:** Added screensavers
+
+## [0.3.0] - 2026-05-11
+
+### Added
+- **www:** On-device web file editor
+
+### Changed
+- **ui:** single source of truth for display dimensions
+- **layout:** Clock, mode, events widgets change to absolute pos
+- **www:** Added radio layout to editor
+- **display:** Modiefied CO5300 layout
+
+## [0.2.0] - 2026-05-09
+
+### Added
+- **display:** Added CO5300 display driver
+- **playlist:** Added fav stations and import/export
+
+### Other
+- Add diagram image to README table
+
+## [0.1.0] - 2026-05-04
+
+Initial public snapshot pushed to GitHub.
+
+### Added
+- Audio pipeline (player, playlist, internet radio service).
+- Wi-Fi manager with STA + AP fallback.
+- HTTP and WebSocket servers.
+- Display + UI manager with profile loading from filesystem.
+- Bluetooth, NTP, encoder, buzzer, events service.
+- SPIFFS-based settings and assets.
+- Firmware version derived from `git describe` and logged at boot.
+
+[Unreleased]: https://github.com/marcinozog/AtlasCube/compare/v0.51.0...HEAD
+[0.51.0]: https://github.com/marcinozog/AtlasCube/compare/v0.50.3...v0.51.0
+[0.50.3]: https://github.com/marcinozog/AtlasCube/compare/v0.50.2...v0.50.3
+[0.50.2]: https://github.com/marcinozog/AtlasCube/compare/v0.50.0...v0.50.2
+[0.50.0]: https://github.com/marcinozog/AtlasCube/compare/v0.49.0...v0.50.0
+[0.49.0]: https://github.com/marcinozog/AtlasCube/compare/v0.48.0...v0.49.0
+[0.48.0]: https://github.com/marcinozog/AtlasCube/compare/v0.47.1...v0.48.0
+[0.47.1]: https://github.com/marcinozog/AtlasCube/compare/v0.47.0...v0.47.1
+[0.47.0]: https://github.com/marcinozog/AtlasCube/compare/v0.46.0...v0.47.0
+[0.46.0]: https://github.com/marcinozog/AtlasCube/compare/v0.45.0...v0.46.0
+[0.45.0]: https://github.com/marcinozog/AtlasCube/compare/v0.44.0...v0.45.0
+[0.44.0]: https://github.com/marcinozog/AtlasCube/compare/v0.43.0...v0.44.0
+[0.43.0]: https://github.com/marcinozog/AtlasCube/compare/v0.42.0...v0.43.0
+[0.41.0]: https://github.com/marcinozog/AtlasCube/compare/v0.40.0...v0.41.0
+[0.40.0]: https://github.com/marcinozog/AtlasCube/compare/v0.39.0...v0.40.0
+[0.39.0]: https://github.com/marcinozog/AtlasCube/compare/v0.38.0...v0.39.0
+[0.38.0]: https://github.com/marcinozog/AtlasCube/compare/v0.37.0...v0.38.0
+[0.37.0]: https://github.com/marcinozog/AtlasCube/compare/v0.36.0...v0.37.0
+[0.36.0]: https://github.com/marcinozog/AtlasCube/compare/v0.35.2...v0.36.0
+[0.35.2]: https://github.com/marcinozog/AtlasCube/compare/v0.35.1...v0.35.2
+[0.35.1]: https://github.com/marcinozog/AtlasCube/compare/v0.35.0...v0.35.1
+[0.35.0]: https://github.com/marcinozog/AtlasCube/compare/v0.34.2...v0.35.0
+[0.34.2]: https://github.com/marcinozog/AtlasCube/compare/v0.34.1...v0.34.2
+[0.34.1]: https://github.com/marcinozog/AtlasCube/compare/v0.34.0...v0.34.1
+[0.34.0]: https://github.com/marcinozog/AtlasCube/compare/v0.33.0...v0.34.0
+[0.33.0]: https://github.com/marcinozog/AtlasCube/compare/v0.32.0...v0.33.0
+[0.32.0]: https://github.com/marcinozog/AtlasCube/compare/v0.31.2...v0.32.0
+[0.31.2]: https://github.com/marcinozog/AtlasCube/compare/v0.31.1...v0.31.2
+[0.31.1]: https://github.com/marcinozog/AtlasCube/compare/v0.31.0...v0.31.1
+[0.31.0]: https://github.com/marcinozog/AtlasCube/compare/v0.30.0...v0.31.0
+[0.30.0]: https://github.com/marcinozog/AtlasCube/compare/v0.29.0...v0.30.0
+[0.29.0]: https://github.com/marcinozog/AtlasCube/compare/v0.28.0...v0.29.0
+[0.28.0]: https://github.com/marcinozog/AtlasCube/compare/v0.27.0...v0.28.0
+[0.27.0]: https://github.com/marcinozog/AtlasCube/compare/v0.26.0...v0.27.0
+[0.26.0]: https://github.com/marcinozog/AtlasCube/compare/v0.25.0...v0.26.0
+[0.25.0]: https://github.com/marcinozog/AtlasCube/compare/v0.24.0...v0.25.0
+[0.24.0]: https://github.com/marcinozog/AtlasCube/compare/v0.23.0...v0.24.0
+[0.23.0]: https://github.com/marcinozog/AtlasCube/compare/v0.22.0...v0.23.0
+[0.22.0]: https://github.com/marcinozog/AtlasCube/compare/v0.21.2...v0.22.0
+[0.21.2]: https://github.com/marcinozog/AtlasCube/compare/v0.21.1...v0.21.2
+[0.21.1]: https://github.com/marcinozog/AtlasCube/compare/v0.21.0...v0.21.1
+[0.21.0]: https://github.com/marcinozog/AtlasCube/compare/v0.20.0...v0.21.0
+[0.20.0]: https://github.com/marcinozog/AtlasCube/compare/v0.19.0...v0.20.0
+[0.19.0]: https://github.com/marcinozog/AtlasCube/compare/v0.18.0...v0.19.0
+[0.18.0]: https://github.com/marcinozog/AtlasCube/compare/v0.17.0...v0.18.0
+[0.17.0]: https://github.com/marcinozog/AtlasCube/compare/v0.16.0...v0.17.0
+[0.16.0]: https://github.com/marcinozog/AtlasCube/compare/v0.15.0...v0.16.0
+[0.15.0]: https://github.com/marcinozog/AtlasCube/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/marcinozog/AtlasCube/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/marcinozog/AtlasCube/compare/v0.12.0...v0.13.0
+[0.12.0]: https://github.com/marcinozog/AtlasCube/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/marcinozog/AtlasCube/compare/v0.10.0...v0.11.0
+[0.10.0]: https://github.com/marcinozog/AtlasCube/compare/v0.9.3...v0.10.0
+[0.9.3]: https://github.com/marcinozog/AtlasCube/compare/v0.9.2...v0.9.3
+[0.9.2]: https://github.com/marcinozog/AtlasCube/compare/v0.9.1...v0.9.2
+[0.9.1]: https://github.com/marcinozog/AtlasCube/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/marcinozog/AtlasCube/compare/v0.8.1...v0.9.0
+[0.8.1]: https://github.com/marcinozog/AtlasCube/compare/v0.8.0...v0.8.1
+[0.8.0]: https://github.com/marcinozog/AtlasCube/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/marcinozog/AtlasCube/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/marcinozog/AtlasCube/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/marcinozog/AtlasCube/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/marcinozog/AtlasCube/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/marcinozog/AtlasCube/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/marcinozog/AtlasCube/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/marcinozog/AtlasCube/releases/tag/v0.1.0

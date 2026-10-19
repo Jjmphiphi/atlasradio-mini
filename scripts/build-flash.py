@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""
+AtlasCube — build & flash. This is the script for end users.
+
+Configure your hardware ONCE in main/include/defines.h (display driver, touch,
+panel profile), then run this — there's nothing else to set up first. On the
+first run it clones and patches ESP-ADF for you; afterwards it compresses the web
+UI, builds, and asks how much of the device to overwrite:
+
+  1) Everything (factory)     — bootloader + partition table + app + www + config
+                                (default settings JSON + station list). A full
+                                image: use on a fresh or erased chip. This RESETS
+                                saved settings AND the station list to defaults.
+  2) Firmware only            — app slot only, flashed over USB. Keeps the web UI,
+                                your settings and your station list. Needs a
+                                bootloader already on the chip (i.e. flashed before
+                                via option 1).
+  3) Firmware + Web UI        — app + www partition, flashed over USB. Keeps your
+                                settings and your station list.
+
+The choices map to the flash layout: the app, the editable web UI (`www`), and
+the user data (`config`: settings + the station list playlist.csv) live in
+separate partitions, so you can reflash code without losing the UI, and reflash
+the UI without losing settings or your stations.
+
+Tip: to tweak the web UI without flashing at all, edit files live in the browser
+(the on-device file editor / the built-in setup page upload) — they write to the
+www partition over HTTP.
+
+It also guards against a stale sdkconfig: ESP-IDF only applies sdkconfig.defaults
+(incl. the auto-generated sdkconfig.variant) when sdkconfig doesn't yet exist, so
+switching the HW variant in defines.h leaves the OLD CONFIG_DISPLAY_*/TOUCH_*
+baked into sdkconfig. The result is a half-switched binary (e.g. new UI_PROFILE
+header but old display driver). The same trap applies to editing sdkconfig.defaults
+itself — IDF won't re-apply it once sdkconfig exists. Before flashing we compare
+defines.h against sdkconfig, and sdkconfig.defaults against a hash recorded at the
+last build (sdkconfig.defaults.stamp); on a mismatch we delete sdkconfig so the
+next reconfigure rebuilds it cleanly (prompted; auto when non-interactive; forced
+with --clean).
+
+Run inside an ESP-IDF environment (the "ESP-IDF PowerShell", or after export.ps1).
+Use that shell's `python`, not `py -3` (system Python 3.14 has no `click`):
+    python scripts/build-flash.py                    # ask what to do, then build (+flash)
+    python scripts/build-flash.py -p COM5            # explicit serial port
+    python scripts/build-flash.py --scope fw         # skip the prompt (fw|ui|all|build)
+    python scripts/build-flash.py --scope build      # compile only, don't flash
+    python scripts/build-flash.py --scope all --monitor
+    python scripts/build-flash.py --clean            # force a clean sdkconfig first
+
+For CI / multi-variant release images, use ci/build.py instead.
+"""
+
+import argparse
+import hashlib
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Toolchain setup (clone + patch ESP-ADF/IDF) and shared helpers live in
+# scripts/env_setup.py — also used by ci/build.py.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from env_setup import (REPO_ROOT, BOARD_NAME, die, warn, run,  # noqa: E402
+                       resolve_idf, resolve_adf, patch_adf,
+                       resolve_idf_python, relaunch_with_idf_python)
+
+# Cap parallel compile jobs by default: full parallelism occasionally trips an
+# xtensa-gcc "internal compiler error: Segmentation fault" under RAM pressure on
+# Windows. 4 builds reliably; override with -j N (use -j 0 for unlimited).
+DEFAULT_JOBS = 4
+
+DEFINES_H = REPO_ROOT / "main" / "include" / "defines.h"
+SDKCONFIG = REPO_ROOT / "sdkconfig"
+SDKCONFIG_DEFAULTS = REPO_ROOT / "sdkconfig.defaults"
+# Records the sdkconfig.defaults hash from the last successful build (gitignored,
+# kept outside build/ since that dir may get wiped). Used to notice edits to
+# sdkconfig.defaults, which ESP-IDF only applies when sdkconfig doesn't yet exist.
+DEFAULTS_STAMP = REPO_ROOT / "sdkconfig.defaults.stamp"
+WWW_IMAGE = REPO_ROOT / "build" / "www.bin"
+
+
+def active_define(text, prefix):
+    """Return the single uncommented `#define <prefix>NAME` member, or None."""
+    m = re.search(rf"^[ \t]*#define[ \t]+({re.escape(prefix)}\w+)[ \t]*$", text, re.M)
+    return m.group(1) if m else None
+
+
+def expected_sdkconfig_tokens():
+    """The CONFIG_* lines the current defines.h variant should produce in sdkconfig,
+    mirroring the sdkconfig.variant generation in the top-level CMakeLists.txt."""
+    text = DEFINES_H.read_text(encoding="utf-8")
+    tokens = []
+    display = active_define(text, "DISPLAY_")
+    touch = active_define(text, "TOUCH_")
+    flash = active_define(text, "FLASH_")
+    if display:
+        tokens.append(f"CONFIG_{display}=y")
+    if touch:
+        tokens.append(f"CONFIG_{touch}=y")
+    if flash:  # FLASH_16MB -> CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+        tokens.append(f"CONFIG_ESPTOOLPY_FLASHSIZE_{flash[len('FLASH_'):]}=y")
+    return tokens
+
+
+def sdkconfig_is_stale():
+    """True if sdkconfig exists but doesn't match the variant in defines.h."""
+    if not SDKCONFIG.is_file():
+        return False  # nothing to clean; reconfigure will generate it fresh
+    sdk = SDKCONFIG.read_text(encoding="utf-8")
+    return any(tok not in sdk for tok in expected_sdkconfig_tokens())
+
+
+def _defaults_hash():
+    return hashlib.sha256(SDKCONFIG_DEFAULTS.read_bytes()).hexdigest()
+
+
+def sdkconfig_defaults_changed():
+    """True if sdkconfig.defaults was edited since the last build that recorded it.
+    Without this, edits to defaults are silently ignored: ESP-IDF only applies
+    sdkconfig.defaults when sdkconfig doesn't already exist."""
+    if not SDKCONFIG.is_file():
+        return False  # no sdkconfig -> reconfigure will apply defaults anyway
+    if not DEFAULTS_STAMP.is_file():
+        return True   # never recorded -> can't prove defaults were applied
+    return DEFAULTS_STAMP.read_text(encoding="utf-8").strip() != _defaults_hash()
+
+
+def write_defaults_stamp():
+    """Record the current sdkconfig.defaults hash after a successful reconfigure."""
+    DEFAULTS_STAMP.write_text(_defaults_hash(), encoding="utf-8")
+
+
+def ensure_fresh_sdkconfig(force):
+    """Delete sdkconfig when it's from another variant or sdkconfig.defaults changed,
+    so the next reconfigure regenerates it cleanly. `force` (--clean) skips detection
+    and the prompt."""
+    if force:
+        if SDKCONFIG.is_file():
+            print("--clean: removing sdkconfig to force a clean reconfigure.")
+            SDKCONFIG.unlink()
+        return
+
+    if sdkconfig_is_stale():
+        reason = ("sdkconfig is from a different HW variant than defines.h "
+                  "(stale CONFIG_DISPLAY_*/TOUCH_* would build a half-switched binary).")
+    elif sdkconfig_defaults_changed():
+        reason = ("sdkconfig.defaults changed since the last build "
+                  "(ESP-IDF won't re-apply it to an existing sdkconfig).")
+    else:
+        return
+
+    print(reason)
+    if sys.stdin.isatty():
+        ans = input("Delete sdkconfig and build cleanly? [Y/n] ").strip().lower()
+        if ans in ("n", "no"):
+            warn("Keeping sdkconfig — the flashed binary may not match defines.h.")
+            return
+    else:
+        warn("Non-interactive: deleting sdkconfig automatically.")
+    SDKCONFIG.unlink()
+
+
+def ensure_setup(idf_path, adf_arg, force):
+    """Make sure ESP-ADF is cloned + patched so a plain build works. Reuses
+    build.py's helpers (idempotent), but skips variant selection — the user sets
+    the hardware in defines.h by hand. Fast-path: skip the patch step once the
+    board is installed; `--setup` forces a re-run."""
+    adf = resolve_adf(adf_arg)  # clones ./esp-adf only if missing; sets ADF_PATH
+    board = adf / "components" / "audio_board" / BOARD_NAME
+    if force or not board.exists():
+        # link=True: install the board sources as a live junction into the repo, so
+        # editing board_pins_config.c here never leaves a stale copy in the ADF clone.
+        patch_adf(adf, idf_path, link=True)
+    else:
+        print(f"ESP-ADF already set up at {adf} — skipping patch (use --setup to re-run).")
+
+
+ACTIONS = {
+    "all":   "Everything / factory          (bootloader + partitions + app + www + config; works on a blank chip; RESETS settings + station list)",
+    "fw":    "Firmware only                 (factory app only, over USB; keeps web UI, settings and station list)",
+    "ui":    "Firmware + Web UI             (factory app + www, over USB; keeps settings and station list)",
+    "build":  "Build only                    (compile + compress web/*.gz; don't flash)",
+    "erase":  "Erase all                     (wipe the WHOLE flash: app + web UI + settings + station list + NVS)",
+    "update": "Update from git              (git pull the repo incl. this script; then re-run the script)",
+}
+
+
+def pick_action():
+    if not sys.stdin.isatty():
+        die("No --scope given and not running interactively. "
+            "Pass --scope all|fw|ui|build.")
+    names = list(ACTIONS)
+    print("\nWhat do you want to do?")
+    for i, name in enumerate(names, 1):
+        if name == "all":
+            print("\n  Build & flash to the device:")
+        elif name == "build":
+            print("\n  Other (no flash):")
+        print(f"    {i}) {ACTIONS[name]}")
+    print()
+    default = str(names.index("fw") + 1)
+    while True:
+        choice = input(f"Number [{default}]: ").strip() or default
+        if choice.isdigit() and 1 <= int(choice) <= len(names):
+            return names[int(choice) - 1]
+        print("Invalid choice.")
+
+
+def list_serial_ports():
+    """Detected serial ports as (device, description) tuples.
+
+    Espressif USB (VID 303A) is listed first so the default pick is the Super Mini,
+    not a Windows Bluetooth COM port that happens to sort as COM9.
+    """
+    try:
+        from serial.tools import list_ports
+    except Exception:
+        return []
+
+    def rank(p):
+        hwid = (p.hwid or "").upper()
+        desc = (p.description or "").upper()
+        if "VID:PID=303A:" in hwid or "ESP" in desc:
+            return 0
+        if hwid.startswith("USB") or "VID:PID=" in hwid:
+            return 1
+        if "BTHENUM" in hwid or "BLUETOOTH" in desc:
+            return 3
+        return 2
+
+    ports = list(list_ports.comports())
+    ports.sort(key=lambda p: (rank(p), p.device))
+    return [(p.device, p.description or "") for p in ports]
+
+
+def pick_port():
+    """Ask for the serial port when -p wasn't given. Without it idf.py auto-detects,
+    which fails on boards whose native USB doesn't enumerate as a plain serial port."""
+    ports = list_serial_ports()
+    if ports:
+        print("\nSerial port (USB first; skip Bluetooth COM ports):")
+        for i, (dev, desc) in enumerate(ports, 1):
+            extra = f"  — {desc}" if desc else ""
+            print(f"  {i}) {dev}{extra}")
+        print("  0) let idf.py auto-detect")
+        while True:
+            choice = input("Port number [1]: ").strip() or "1"
+            if choice == "0":
+                return None
+            if choice.isdigit() and 1 <= int(choice) <= len(ports):
+                return ports[int(choice) - 1][0]
+            print("Invalid choice.")
+    val = input("\nNo serial ports detected. Type a port (e.g. COM6), "
+                "or leave empty to let idf.py auto-detect: ").strip()
+    return val or None
+
+
+def ask_monitor():
+    """Ask whether to open the serial monitor once flashing is done. Asked up front
+    (with the port) so the run needs no attention after the build starts."""
+    try:
+        ans = input("\nOpen the serial monitor after flashing? [y/N] ").strip().lower()
+    except EOFError:
+        return False
+    return ans in ("y", "yes")
+
+
+def git_update():
+    """Pull the latest repo (this script included), then ask the user to re-run it.
+
+    defines.h (the user's HW pins/variant) is tracked by git, so a pull can clash
+    with local edits. We don't touch it automatically — we warn first so the user
+    backs it up, and re-running is left to the user so the *new* script version is
+    the one that actually runs."""
+    print("\nThis runs 'git pull --ff-only' in the repo to fetch the latest version.")
+    warn("Your hardware config in main/include/defines.h (pins/variant) is tracked "
+         "by git — BACK IT UP before continuing. The pull may overwrite it or "
+         "refuse to apply if you have local edits.")
+    if sys.stdin.isatty():
+        ans = input("Backed up defines.h? Continue with 'git pull'? [y/N] ").strip().lower()
+        if ans not in ("y", "yes"):
+            print("Aborted — nothing pulled.")
+            return
+    rc = subprocess.run(["git", "-C", str(REPO_ROOT), "pull", "--ff-only"]).returncode
+    if rc != 0:
+        warn("git pull failed (likely local changes, e.g. your defines.h). "
+             "Resolve them — 'git stash' or commit — then try again. "
+             "Your files were left untouched.")
+        return
+    print("\nRepo updated. RESTART this script to run the new version:")
+    print("    python scripts/build-flash.py")
+
+
+def main():
+    relaunch_with_idf_python()
+
+    ap = argparse.ArgumentParser(description="AtlasCube build & flash (end-user script).")
+    ap.add_argument("-p", "--port", help="serial port (e.g. COM5 / /dev/ttyUSB0); auto-detected if omitted")
+    ap.add_argument("--scope", choices=list(ACTIONS), help="what to do: flash all|fw|ui, or build (compile only); skips the prompt")
+    ap.add_argument("--monitor", action="store_true", help="open the serial monitor after flashing (skips the prompt)")
+    ap.add_argument("--clean", action="store_true", help="force a clean sdkconfig before building")
+    ap.add_argument("-j", "--jobs", type=int, metavar="N", default=DEFAULT_JOBS,
+                    help=f"parallel compile jobs (default {DEFAULT_JOBS}; use 0 for "
+                         "unlimited). Capped to avoid the sporadic GCC 'internal "
+                         "compiler error: Segmentation fault' from RAM pressure when "
+                         "many xtensa-gcc run at once")
+    ap.add_argument("--setup", action="store_true", help="force re-running the ESP-ADF/IDF setup patches")
+    ap.add_argument("--adf-path", help="path to an existing esp-adf checkout (default: $ADF_PATH or ./esp-adf, cloned if absent)")
+    args = ap.parse_args()
+
+    # Ask up front so the user isn't prompted after a long build/setup.
+    action = args.scope or pick_action()
+
+    # Repo self-update needs neither ESP-IDF nor a serial port — handle it before
+    # requiring the toolchain environment, then stop (user re-runs the new script).
+    if action == "update":
+        git_update()
+        return
+
+    idf_path, idf_py = resolve_idf()
+    idf_python = str(resolve_idf_python())
+
+    # Serial port for flashing actions (build-only needs none). Ask when -p was
+    # omitted rather than leaning on idf.py auto-detect, which finds nothing on
+    # boards whose native USB doesn't enumerate as a plain serial port.
+    port = args.port
+    if action != "build" and not port and sys.stdin.isatty():
+        port = pick_port()
+
+    # Same idea for the monitor: --monitor wins, otherwise ask now (flashing
+    # actions only) so nothing is prompted once the build is running.
+    monitor = args.monitor
+    if action in ("fw", "ui", "all") and not monitor and sys.stdin.isatty():
+        monitor = ask_monitor()
+
+    def idf(*a):
+        cmd = [idf_python, str(idf_py)]
+        if port:
+            cmd += ["-p", port]
+        return cmd + list(a)
+
+    def parttool_write(partition, image):
+        cmd = [idf_python, str(idf_path / "components" / "partition_table" / "parttool.py")]
+        if port:
+            cmd += ["--port", port]
+        return cmd + ["write_partition", "--partition-name", partition, "--input", str(image)]
+
+    # First run clones + patches ESP-ADF (and exports ADF_PATH for the build);
+    # later runs detect it's done and skip straight through.
+    ensure_setup(idf_path, args.adf_path, args.setup)
+
+    # Erase is a standalone, destructive flash op — no build needed.
+    if action == "erase":
+        if sys.stdin.isatty():
+            ans = input("Erase the ENTIRE flash (app, web UI, settings, station list, NVS)? [y/N] ").strip().lower()
+            if ans not in ("y", "yes"):
+                print("Aborted.")
+                return
+        run(idf("erase-flash"))
+        print("\nFlash erased. Restore a working device with '--scope all' "
+              "(or pick 'Everything' in the menu).")
+        return
+
+    # Drop a stale sdkconfig before configuring (variant switch guard).
+    ensure_fresh_sdkconfig(args.clean)
+
+    # Recompress the web UI so the www partition image is current, then build
+    # everything (app + www.bin + config.bin) once; the action only changes which
+    # parts get written to the device (if any).
+    run([idf_python, str(REPO_ROOT / "spiffs_image" / "tools" / "compress_web.py")])
+    if args.jobs > 0:
+        # idf.py build runs `ninja all` directly and exposes no jobs flag, so we run the
+        # same two steps ourselves with a capped job count: configure (regenerates
+        # sdkconfig/partition table), then ninja -j. Fewer concurrent gcc processes lower
+        # peak RAM use, which avoids the intermittent ICE/segfault xtensa-gcc throws under
+        # memory pressure (rerunning the build usually "fixes" it for the same reason).
+        run(idf("reconfigure"))
+        run(["ninja", "-C", str(REPO_ROOT / "build"), f"-j{args.jobs}"])
+    else:  # -j 0: let ninja use all cores (original idf.py build behaviour)
+        run(idf("build"))
+
+    # Build succeeded -> the current sdkconfig.defaults is now baked into sdkconfig.
+    write_defaults_stamp()
+
+    if action == "build":
+        print("\nBuild only — not flashing. Compressed web UI is in spiffs_image/web/; "
+              "build artifacts are in build/ (use ci/build.py / idf.py merge-bin "
+              "for a distributable image).")
+        return
+
+    # app-flash writes the factory partition. There is no otadata / second slot.
+    if action == "fw":
+        run(idf("app-flash"))
+    elif action == "ui":
+        run(idf("app-flash"))
+        if not WWW_IMAGE.is_file():
+            die(f"{WWW_IMAGE} not found — build did not produce the www image.")
+        run(parttool_write("www", WWW_IMAGE))
+    else:  # all
+        run(idf("flash"))
+
+    if monitor:
+        run(idf("monitor"))
+
+
+if __name__ == "__main__":
+    main()

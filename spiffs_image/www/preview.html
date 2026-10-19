@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AtlasCube — screen preview</title>
+<link rel="icon" href="favicon.ico">
+<style>
+/* The panel typeface: the very same Montserrat-Medium.ttf that scripts/gen_fonts.ps1
+   feeds to lv_font_conv, subset to the same code-point ranges (ASCII, Latin-1
+   Supplement, Latin Extended-A, Romanian comma-below) and kept with kerning, so a
+   glyph drawn here is the glyph the device draws. */
+@font-face {
+    font-family: 'AtlasMontserrat';
+    src: url('montserrat-medium-eu.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: block;
+}
+
+:root {
+    --page-bg:   #14161a;
+    --panel-bg:  #1c1f26;
+    --line:      #2c313b;
+    --fg:        #d8dde5;
+    --fg-dim:    #8b94a3;
+    --accent:    #4c9aff;
+    --warn:      #ffb454;
+}
+
+* { box-sizing: border-box; }
+
+/* The screens are the point of the page, so they start at the very top and the
+   controls sit around them. */
+body {
+    margin: 0;
+    padding: 14px 20px 28px;
+    background: var(--page-bg);
+    color: var(--fg);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* A phone has no pixels to donate to page margins, and the fit calculation
+   subtracts this padding from the width available to the panel. */
+@media (max-width: 620px) {
+    body { padding: 10px 8px 20px; }
+}
+
+.topbar, .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.topbar { margin-bottom: 10px; }
+.bar    { margin-top: 14px; }
+
+.topbar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* One row of controls, or the bar stops looking like a bar. The fifth control —
+   Fullscreen, which a browser shows and the Android app removes outright, since
+   the Fullscreen API does nothing in its WebView — does not fit a phone, and
+   wrapping left it stranded on a second line under everything else. What goes is
+   the wording, not the controls: the glyph and the title/aria-label carry them. */
+@media (max-width: 560px) {
+    .topbar label,
+    .topbar .btn-label { display: none; }
+
+    /* Square around the lone glyph rather than a wide button with a gap in it. */
+    .topbar button { padding: 5px 9px; gap: 0; }
+}
+
+.bar label, .topbar label { color: var(--fg-dim); }
+
+select, button {
+    background: var(--panel-bg);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font: inherit;
+    cursor: pointer;
+}
+
+button:hover, select:hover { border-color: var(--accent); }
+
+/* The list toggle on a source that has no list screen (Bluetooth). */
+button:disabled { opacity: .45; cursor: default; }
+button:disabled:hover { border-color: var(--line); }
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--fg-dim);
+}
+
+.badge::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fg-dim);
+}
+
+.badge.live { color: #7ee08a; border-color: #2f5b38; }
+.badge.live::before { background: #7ee08a; }
+.badge.down { color: var(--warn); border-color: #5b482f; }
+.badge.down::before { background: var(--warn); }
+
+/* Device frame — the screen elements are sized in real LCD pixels and scaled as a
+   whole, so every coordinate inside them is a device coordinate, no conversion. */
+#viewer { display: inline-block; }
+
+.frame {
+    display: inline-block;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px;
+    background: var(--panel-bg);
+}
+
+#stage, #list_stage, #eq_stage { position: relative; overflow: hidden; }
+
+#screen, #list_screen, #eq_screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: top left;
+    overflow: hidden;
+    font-family: 'AtlasMontserrat', sans-serif;
+    font-weight: 500;
+    /* LVGL blits glyph bitmaps; keep the browser from adding its own flourishes. */
+    font-kerning: normal;
+    font-variant-ligatures: none;
+    text-rendering: geometricPrecision;
+}
+
+#list_wrap { margin-top: 20px; }
+
+.screen-caption {
+    margin-bottom: 6px;
+    color: var(--fg-dim);
+    font-size: 12px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+/* Fullscreen is requested on #viewer, not on a frame alone: a fullscreen element
+   is the ONLY thing rendered, so anything the presenter still needs — the volume
+   bar, the list panel, a way out — has to live inside it. */
+#viewer:fullscreen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    width: 100%;
+    height: 100%;
+    background: #000;
+}
+
+#viewer:fullscreen::backdrop { background: #000; }
+
+/* The device frame is chrome for the page, not for the wall. */
+#viewer:fullscreen .frame {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}
+
+#viewer:fullscreen .volbar,
+#viewer:fullscreen #list_wrap { margin-top: 0; }
+#viewer:fullscreen .screen-caption { display: none; }
+
+/* The same bar, relocated: above the panel on the page, floating over the corner
+   on the wall. position:fixed takes it out of the flex column, so it does not eat
+   into the height the panels are fitted to. Faded until pointed at (or focused,
+   so it is reachable from the keyboard) — it should not compete with what is
+   being shown. */
+#viewer:fullscreen .topbar {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    margin: 0;
+    opacity: .35;
+    transition: opacity .15s;
+}
+
+#viewer:fullscreen .topbar:hover,
+#viewer:fullscreen .topbar:focus-within { opacity: 1; }
+
+/* Sits directly under the panel and is widened to match it (see applyZoom), so it
+   reads as belonging to the device rather than to the page chrome. */
+.volbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.vol-icon { font-size: 14px; opacity: .7; }
+
+.vol-value {
+    min-width: 42px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-dim);
+    font-size: 13px;
+}
+
+.volbar input[type=range] {
+    flex: 1;
+    min-width: 120px;
+    height: 22px;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    /* Only the knob moves the volume (see the pointerdown guard in
+       preview-core.js), so the track must not advertise itself as clickable. */
+    cursor: default;
+}
+
+.volbar input[type=range]:disabled { opacity: .4; }
+
+/* A groove cut into the page rather than a hairline drawn on it: taller than the
+   knob's stem, sunk below the page background, edged with --line, and filled in
+   --accent up to the current level (--fill, set from paintVolumeFill). The old
+   4 px var(--line) bar was all but invisible against --page-bg, which is how a
+   press could land on the far end without the end being visible at all.
+
+   The two engines get their own rules on purpose: one unknown selector voids the
+   whole rule, so a -webkit- and a -moz- pseudo-element must never share a list —
+   as they did here, leaving Firefox with no track styling whatsoever. */
+.volbar input[type=range]::-webkit-slider-runnable-track {
+    height: 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: linear-gradient(to right,
+                var(--accent) 0 var(--fill, 0%), #0d0f13 var(--fill, 0%) 100%);
+}
+
+.volbar input[type=range]::-moz-range-track {
+    height: 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #0d0f13;
+}
+
+.volbar input[type=range]::-moz-range-progress {
+    height: 8px;
+    border-radius: 4px 0 0 4px;
+    background: var(--accent);
+}
+
+/* Ringed in the page background so the knob still reads as a knob where it sits
+   on top of its own accent-coloured fill. grab, because dragging it is now the
+   only way to move the volume. */
+.volbar input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin-top: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--page-bg);
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--line);
+    cursor: grab;
+}
+
+.volbar input[type=range]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid var(--page-bg);
+    background: var(--accent);
+    box-shadow: 0 0 0 1px var(--line);
+    cursor: grab;
+}
+
+/* Touch hotspots. Invisible at rest, exactly as the widget leaves them — the
+   wallpaper is the button. border-box keeps the border inside the object bounds,
+   as LVGL draws it. */
+.hotspot {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+}
+
+/* Actions that only exist inside the panel's own UI — shown, nothing to send. */
+.hotspot.inert { cursor: not-allowed; }
+
+/* Only while the button is actually held, which is what LV_STATE_PRESSED means.
+   Hover must NOT light it up: the cursor stays on the button after a click, so
+   the highlight would linger and read as a stuck press. */
+.hotspot:active {
+    background: rgba(255, 255, 255, .4);
+    border-color: rgba(255, 255, 255, .6);
+}
+
+/* Preview aid, not something the panel ever shows. Alignment against the button
+   painted into the wallpaper is checked in this mode, where a lingering highlight
+   is the point rather than a distraction. */
+#screen.show-hotspots .hotspot {
+    outline: 1px dashed rgba(120, 200, 255, .8);
+    outline-offset: -1px;
+}
+
+#screen.show-hotspots .hotspot:hover {
+    background: rgba(255, 255, 255, .4);
+    border-color: rgba(255, 255, 255, .6);
+}
+
+/* Affordance only. The panel gives a row no pressed styling of its own — it acts
+   and leaves the screen — so nothing is painted here either. */
+.pl-row { cursor: pointer; }
+
+/* The device runs the list with LV_SCROLLBAR_MODE_OFF, so no bar is drawn over
+   the wallpaper here either. */
+.pl-view { scrollbar-width: none; }
+.pl-view::-webkit-scrollbar { display: none; }
+
+/* Elements the preview does not draw for real yet: outlined so it is always
+   obvious which parts of the screen are honest pixels and which are stand-ins. */
+.stub {
+    position: absolute;
+    border: 1px dashed rgba(255, 255, 255, .45);
+    background: rgba(255, 255, 255, .06);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.stub span {
+    position: absolute;
+    left: 2px;
+    top: 1px;
+    font: 9px/1.2 system-ui, sans-serif;
+    color: rgba(255, 255, 255, .75);
+    white-space: nowrap;
+}
+
+/* Equalizer modal. Sized by its content (the scaled panel), never wider than the
+   window — a phone gets the same screen, just at a smaller scale.
+   The height cap is a percentage, not 96vh: an Android WebView (measured on
+   Chrome/150) resolves vh to ZERO while vw resolves correctly, which collapsed
+   this dialog to its title bar with the panel scrolling inside it. A modal is
+   positioned against the viewport, so 96% of the containing block is the same
+   number everywhere — and it is what the UA stylesheet itself caps dialogs
+   with. Keep it that way, and do not size anything here with vh. */
+#eq_modal {
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--page-bg);
+    color: var(--fg);
+    max-width: 96vw;
+    max-height: 96%;
+    overflow: auto;
+}
+
+#eq_modal::backdrop { background: rgba(0, 0, 0, .72); }
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.modal-head .screen-caption { margin: 0; }
+
+/* The bands are dragged with the pointer; no text selection while doing so. */
+#eq_screen { touch-action: none; user-select: none; }
+
+.eq-band { position: absolute; cursor: ns-resize; }
+
+#err {
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border: 1px solid #6b3b3b;
+    border-radius: 6px;
+    background: #2a1c1c;
+    color: #ffb0b0;
+    display: none;
+}
+</style>
+</head>
+<body>
+
+<div id="err"></div>
+
+<div id="viewer">
+    <!-- Inside the viewer on purpose: a fullscreen element is the only thing
+         rendered, so these two are the controls that have to survive up there.
+         In fullscreen the bar floats over the corner instead of sitting above
+         the panel — same controls, no duplicates to keep in sync. -->
+    <div class="topbar">
+        <span class="badge" id="ws_badge">connecting…</span>
+        <label for="mode">Source</label>
+        <select id="mode">
+            <option value="radio" selected>Radio</option>
+            <option value="sd">SD card</option>
+            <option value="bt">Bluetooth</option>
+        </select>
+        <!-- Icon and wording are separate elements so a narrow screen can drop the
+             wording and keep the button (see the media query). aria-label carries
+             the name once the text is gone. -->
+        <button id="eq_open" type="button" aria-label="Equalizer"
+                title="Show the equalizer screen (Esc to close)">
+            <span class="btn-icon">🎛</span><span class="btn-label">Equalizer</span>
+        </button>
+        <button id="fullscreen" type="button" aria-label="Fullscreen"
+                title="Fill the browser window (Esc to leave)">
+            <span class="btn-icon">⛶</span><span class="btn-label" id="fullscreen_label">Fullscreen</span>
+        </button>
+    </div>
+
+    <div class="frame">
+        <div id="stage"><div id="screen"></div></div>
+    </div>
+
+    <div class="volbar" id="volbar">
+        <span class="vol-icon">🔈</span>
+        <input type="range" id="volume" min="0" max="100" value="0" step="1"
+               aria-label="Volume"
+               title="Drag the knob to change the volume — a press on the bar is ignored">
+        <span class="vol-value" id="vol_value">—</span>
+    </div>
+
+    <!-- Shown from the start: the list is half of what the page is for, and a
+         visitor should not have to find a button to see it. -->
+    <div id="list_wrap">
+        <div class="screen-caption" id="list_caption">Playlist screen</div>
+        <div class="frame">
+            <div id="list_stage"><div id="list_screen"></div></div>
+        </div>
+    </div>
+
+</div>
+
+<div class="bar">
+    <label for="zoom">Zoom</label>
+    <select id="zoom">
+        <option value="fit" selected>Fit window</option>
+        <option value="1">1:1</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+    </select>
+    <button id="reload" type="button">Reload profile</button>
+    <!-- The list panel starts visible, so this starts as the hide direction; boot()
+         relabels it for the restored source. -->
+    <button id="toggle_list" type="button">Hide playlist screen</button>
+    <label><input type="checkbox" id="show_hotspots"> Show touch areas</label>
+</div>
+
+<!-- The equalizer is not a source but a screen you arrive at from radio/SD/BT, so
+     it gets a modal instead of a slot in the source list. A <dialog> renders in the
+     top layer, which sits above a fullscreen element — it stays reachable there. -->
+<dialog id="eq_modal">
+    <div class="modal-head">
+        <span class="screen-caption">Equalizer screen</span>
+        <button id="eq_close" type="button">Close</button>
+    </div>
+    <div class="frame">
+        <div id="eq_stage"><div id="eq_screen"></div></div>
+    </div>
+</dialog>
+
+<script src="lvbin.js"></script>
+<script src="preview-core.js"></script>
+<script src="preview-list.js"></script>
+<script src="preview-radio.js"></script>
+<script src="preview-sd.js"></script>
+<script src="preview-bt.js"></script>
+<script src="preview-eq.js"></script>
+</body>
+</html>

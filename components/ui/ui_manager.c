@@ -1,0 +1,778 @@
+#include "defines.h"
+#include "ui_manager.h"
+#include "ui_screen.h"
+#include "ui_events.h"
+#include "ui_nav.h"
+#include "ui_background.h"
+#include "theme.h"
+#include "app_state.h"
+#include "settings.h"
+#include "wifi_manager.h"
+#include "screen_event_notification.h"
+#include "screen_update.h"
+#include "updater.h"
+#include "events_service.h"
+#include "screensavers.h"
+#include "net_wallpaper.h"
+#include "net_asset.h"
+#include "ui_asset.h"
+#include "weather.h"
+#include "cover_art.h"
+#include "net_fetch_overlay_widget.h"
+#include "display.h"
+#include "fonts/ui_fonts.h"
+#include "lvgl.h"
+#include "display/lv_display_private.h"   // disp->perf_label for apply_fps_overlay()
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_task_wdt.h"
+#include <string.h>
+
+// --------------------------------------------------------------------------
+// Screen forward declarations — add every new screen here
+// --------------------------------------------------------------------------
+
+extern const ui_screen_t screen_splash;
+extern const ui_screen_t screen_radio;
+extern const ui_screen_t screen_playlist;
+extern const ui_screen_t screen_home;
+// extern const ui_screen_t screen_weather;
+#if !defined(BOARD_S3_SUPERMINI)
+extern const ui_screen_t screen_bt;
+extern const ui_screen_t screen_layout_editor;
+#endif
+extern const ui_screen_t screen_wifi;
+extern const ui_screen_t screen_settings;
+extern const ui_screen_t screen_equalizer;
+extern const ui_screen_t screen_events;
+extern const ui_screen_t screen_event_notification;
+extern const ui_screen_t screen_mqtt;
+extern const ui_screen_t screen_ota;
+extern const ui_screen_t screen_sd_player;
+extern const ui_screen_t screen_sd_browser;
+extern const ui_screen_t screen_update;
+extern const ui_screen_t screen_diag;
+
+// --------------------------------------------------------------------------
+// Screen registry — order must match ui_screen_id_t
+// --------------------------------------------------------------------------
+
+static const ui_screen_t *s_screens[SCREEN_COUNT] = {
+    [SCREEN_SPLASH]             = &screen_splash,
+    [SCREEN_RADIO]              = &screen_radio,
+    [SCREEN_PLAYLIST]           = &screen_playlist,
+    [SCREEN_CLOCK]              = NULL,   // removed — superseded by SCREEN_HOME
+    [SCREEN_HOME]               = &screen_home,
+    [SCREEN_WEATHER]            = NULL,
+#if defined(BOARD_S3_SUPERMINI)
+    [SCREEN_BT]                 = NULL,
+#else
+    [SCREEN_BT]                 = &screen_bt,
+#endif
+    [SCREEN_WIFI]               = &screen_wifi,
+    [SCREEN_SETTINGS]           = &screen_settings,
+    [SCREEN_EQ]                 = &screen_equalizer,
+    [SCREEN_EVENTS]             = &screen_events,
+    [SCREEN_EVENT_NOTIFICATION] = &screen_event_notification,
+    [SCREEN_MQTT]               = &screen_mqtt,
+    [SCREEN_OTA]                = &screen_ota,
+    [SCREEN_SD]                 = &screen_sd_player,
+    [SCREEN_SD_BROWSER]         = &screen_sd_browser,
+    [SCREEN_UPDATE]             = &screen_update,
+#if defined(BOARD_S3_SUPERMINI)
+    [SCREEN_LAYOUT_EDITOR]      = NULL,
+#else
+    [SCREEN_LAYOUT_EDITOR]      = &screen_layout_editor,
+#endif
+    [SCREEN_DIAG]               = &screen_diag,
+};
+
+// --------------------------------------------------------------------------
+// Manager state
+// --------------------------------------------------------------------------
+
+static const char *TAG = "UI_MGR";
+
+#define UI_EVENT_QUEUE_SIZE 16
+
+static QueueHandle_t        s_event_queue = NULL;
+static ui_screen_id_t       s_active_id   = SCREEN_COUNT; // sentinel: none
+static const ui_screen_t   *s_active      = NULL;
+
+static bool s_prev_bt_enable = false;
+static ui_theme_t     s_prev_theme    = THEME_DARK;
+static bool           s_prev_bg_gradient = true;
+static bool           s_prev_wallpaper_on = false;
+static char           s_prev_wallpaper_path[128] = "";
+static int            s_prev_wallpaper_dim = 0;
+
+// Screensaver overlay — runs on top of an existing screen.
+// While active, the underlying s_active widgets are torn down but s_active /
+// s_active_id still point at the underlying screen so we can rebuild it.
+static const ui_screen_t *s_ss_overlay     = NULL;
+static int64_t            s_last_input_us  = 0;
+
+// "Dim" screensaver state: it keeps the current screen alive and only lowers
+// the backlight. s_ss_dim marks that the active overlay is the dim-only one so
+// dismiss restores brightness instead of rebuilding the screen.
+static bool       s_ss_dim        = false;
+static uint8_t    s_ss_dim_saved  = 100;   // brightness to restore on wake
+static lv_obj_t  *s_ss_catcher    = NULL;  // transparent wake catcher on top
+
+static bool playback_active(const app_state_t *st)
+{
+    if (st->radio_state == RADIO_STATE_PLAYING ||
+        st->radio_state == RADIO_STATE_BUFFERING) return true;
+    if (st->sd_active && !st->sd_paused)          return true;
+    if (st->bt_playing)                           return true;
+    return false;
+}
+
+static bool can_auto_screensaver_from(ui_screen_id_t id)
+{
+    if (id >= SCREEN_COUNT)              return false;
+    if (id == SCREEN_SPLASH)             return false;
+    if (id == SCREEN_EVENT_NOTIFICATION) return false;
+    if (id == SCREEN_WIFI)               return false;
+    if (id == SCREEN_OTA)                return false;  // never screensave mid-update
+    if (id == SCREEN_LAYOUT_EDITOR)      return false;  // never interrupt unsaved layout work
+    return true;
+}
+
+// Follow-source (display.follow_source): when a source starts playing, surface
+// its player screen — whatever started it (touch, encoder, web, WS, MQTT, voice,
+// remote, schedule, boot resume) lands here through app_state.
+//
+// Rising edge only, so a next-track inside an already active SD queue does not
+// re-navigate, while stop → play does. The edges are tracked even when the
+// option is off, so switching it on mid-playback doesn't fire on the next
+// unrelated state update.
+//
+// BT has two triggers: the phone starting playback (bt_playing, from the
+// module's AVRCP play event) and BT simply becoming the source (bt_enable).
+// Not every module dialect reports play/pause, so the bt_enable edge is what
+// makes the BT screen reachable there — and "the source switched to BT" is the
+// same intent anyway.
+static void apply_follow_source(const app_state_t *s)
+{
+    static bool s_prev_radio_play = false;
+    static bool s_prev_sd_active  = false;
+    static bool s_prev_bt_play    = false;
+    static bool s_prev_bt_on      = false;
+
+    bool radio_play = (s->radio_state == RADIO_STATE_PLAYING ||
+                       s->radio_state == RADIO_STATE_BUFFERING);
+    bool radio_edge = radio_play    && !s_prev_radio_play;
+    bool sd_edge    = s->sd_active  && !s_prev_sd_active;
+    bool bt_edge    = (s->bt_playing && !s_prev_bt_play) ||
+                      (s->bt_enable  && !s_prev_bt_on);
+
+    s_prev_radio_play = radio_play;
+    s_prev_sd_active  = s->sd_active;
+    s_prev_bt_play    = s->bt_playing;
+    s_prev_bt_on      = s->bt_enable;
+
+    if (!s->follow_source)                    return;
+    if (!radio_edge && !sd_edge && !bt_edge)  return;
+    if (s_ss_overlay)                         return;   // don't navigate under a screensaver
+
+    // Only between home-ring screens: never yank the user out of settings, a
+    // picker, the splash, or an update prompt.
+    if (!ui_nav_is_ring(s_active_id)) return;
+
+    // On a same-update tie the source that takes the output over wins: BT
+    // supersedes SD music, SD supersedes the radio.
+    ui_screen_id_t target = bt_edge ? SCREEN_BT :
+                            sd_edge ? SCREEN_SD : SCREEN_RADIO;
+    if (target == s_active_id)   return;
+    if (!ui_nav_is_ring(target)) return;   // hidden in the ring → nothing to show
+
+    ESP_LOGI(TAG, "follow source → %s",
+             target == SCREEN_BT ? "BT" : target == SCREEN_SD ? "SD" : "RADIO");
+    ui_navigate(target);
+}
+
+// --------------------------------------------------------------------------
+// app_state callback — invoked from a foreign task, only pushes an event
+// --------------------------------------------------------------------------
+
+static void on_state_change(void)
+{
+    app_state_t *s = app_state_get();
+
+    // Before the early returns below — a theme/background update in the same
+    // batch must not swallow the source edge.
+    apply_follow_source(s);
+
+    if (s->theme != s_prev_theme) {
+        ESP_LOGI("UI_MGR", "Theme change: %d → %d", (int)s_prev_theme, (int)s->theme);
+        s_prev_theme = s->theme;
+        // theme_set() was already called by settings_set_theme() — only the event here
+        ui_event_t ev = { .type = UI_EVT_THEME_CHANGED };
+        ui_event_send(&ev);
+        return;
+    }
+
+    if (s->bg_gradient != s_prev_bg_gradient) {
+        s_prev_bg_gradient = s->bg_gradient;
+        ui_event_t ev = { .type = UI_EVT_BG_CHANGED };
+        ui_event_send(&ev);
+        return;
+    }
+
+    // Wallpaper toggle, path or dim change → reapply the shared background. The
+    // path and dim live in settings (not app_state), so compare them directly.
+    const char *wp_path = settings_get()->display.wallpaper_path;
+    const int   wp_dim  = settings_get()->display.wallpaper_dim;
+    if (s->wallpaper_on != s_prev_wallpaper_on ||
+        wp_dim != s_prev_wallpaper_dim ||
+        strcmp(wp_path, s_prev_wallpaper_path) != 0) {
+        s_prev_wallpaper_on = s->wallpaper_on;
+        s_prev_wallpaper_dim = wp_dim;
+        strncpy(s_prev_wallpaper_path, wp_path, sizeof(s_prev_wallpaper_path) - 1);
+        s_prev_wallpaper_path[sizeof(s_prev_wallpaper_path) - 1] = '\0';
+        ui_event_t ev = { .type = UI_EVT_BG_CHANGED };
+        ui_event_send(&ev);
+        return;
+    }
+
+    if (wifi_get_run_mode() == WIFI_RUN_MODE_AP) return;
+
+    ui_event_t ev = { .type = UI_EVT_STATE_CHANGED };
+    ui_event_send(&ev);
+}
+
+// --------------------------------------------------------------------------
+// Navigation — executed ONLY inside ui_manager_run (lvgl_task)
+// --------------------------------------------------------------------------
+
+// Each screen's create() re-asserts an opaque background on lv_scr_act(), which
+// would hide an animated background living on lv_layer_bottom() (the VU meter).
+// Re-apply the shared background after every screen build so it survives nav —
+// this is also where a per-screen wallpaper override (ui_profile) kicks in.
+// For static gradient/wallpaper/solid modes this is a cheap no-op repaint.
+static void reassert_background(void)
+{
+    ui_background_apply(lv_scr_act(), s_active_id);
+}
+
+// Rebuild the current screen — used after a ui_profile (layout) change from
+// the web. We keep s_active_id, but destroy and recreate the widgets, because
+// values from ui_profile_get() are copied during create().
+static void do_rebuild_active(void)
+{
+    if (s_ss_overlay) {
+        // Underlying widgets aren't built right now; they will be rebuilt with
+        // the latest profile when the screensaver is dismissed.
+        return;
+    }
+    if (!s_active) {
+        ESP_LOGW(TAG, "rebuild: no active screen");
+        return;
+    }
+    if (s_active->destroy) s_active->destroy();
+    lv_obj_clean(lv_scr_act());
+    if (s_active->create) {
+        ESP_LOGI(TAG, "rebuild: %s", s_active->name ? s_active->name : "?");
+        s_active->create(lv_scr_act());
+    }
+    reassert_background();
+}
+
+// Tear down whichever widget tree is currently on screen (overlay or screen).
+static void teardown_displayed(void)
+{
+    if (s_ss_dim) {
+        // Dim overlay never tore down the screen; restore brightness before the
+        // navigation rebuilds a fresh screen over the (about to be cleaned) one.
+        display_set_backlight(s_ss_dim_saved);
+        s_ss_dim     = false;
+        s_ss_catcher = NULL;   // cleaned by lv_obj_clean() below
+        s_ss_overlay = NULL;
+    } else if (s_ss_overlay) {
+        if (s_ss_overlay->destroy) s_ss_overlay->destroy();
+        s_ss_overlay = NULL;
+    } else if (s_active && s_active->destroy) {
+        ESP_LOGI(TAG, "destroy: %s", s_active->name ? s_active->name : "?");
+        s_active->destroy();
+    }
+    lv_obj_clean(lv_scr_act());
+}
+
+static void do_navigate(ui_screen_id_t id)
+{
+    if (id >= SCREEN_COUNT) {
+        ESP_LOGW(TAG, "Invalid screen_id: %d", id);
+        return;
+    }
+
+    if (!s_screens[id]) {
+        ESP_LOGW(TAG, "Screen %d not implemented yet", id);
+        return;
+    }
+
+    teardown_displayed();
+
+    s_active_id = id;
+    s_active    = s_screens[id];
+
+    if (s_active->create) {
+        ESP_LOGI(TAG, "create: %s", s_active->name ? s_active->name : "?");
+        s_active->create(lv_scr_act());
+    }
+    reassert_background();
+}
+
+// Click-catcher on top of the screensaver: LV_EVENT_PRESSED doesn't bubble by
+// default (unlike gestures), so a plain tap on screensaver widgets would never
+// reach lv_scr_act(). The catcher posts UI_EVT_INPUT into the queue and the
+// main loop dismisses the overlay safely on its next iteration.
+static void ss_wake_cb(lv_event_t *e)
+{
+    (void)e;
+    ui_input_send(UI_INPUT_NONE);
+}
+
+// Transparent full-screen catcher: the first tap/press only wakes the
+// screensaver (posts UI_EVT_INPUT) and never reaches the screen underneath.
+static void add_ss_catcher(void)
+{
+    lv_obj_t *catcher = lv_obj_create(lv_scr_act());
+    lv_obj_remove_style_all(catcher);
+    lv_obj_set_size(catcher, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_opa(catcher, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(catcher, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(catcher, ss_wake_cb, LV_EVENT_PRESSED, NULL);
+    s_ss_catcher = catcher;
+}
+
+static void activate_screensaver(int ss_id)
+{
+    if (s_ss_overlay) return;
+
+    const ui_screen_t *ss = screensaver_get(ss_id);
+    if (!ss) return;
+
+    // "Dim" screensaver: keep the current screen visible, just lower the
+    // backlight and lay a catcher on top so the first input only wakes.
+    if (ss_id == SCREENSAVER_DIM) {
+        const app_settings_t *st = settings_get();
+        s_ss_dim_saved = (uint8_t)st->display.brightness;
+        s_ss_dim       = true;
+        s_ss_overlay   = ss;   // non-NULL → input path dismisses on next tap
+        display_set_backlight((uint8_t)st->scrsaver.dim_level);
+        ESP_LOGI(TAG, "screensaver activate: dim (level=%d)", st->scrsaver.dim_level);
+        add_ss_catcher();
+        return;
+    }
+
+    // Tear down the underlying screen's widgets but keep s_active pointer
+    // so we can rebuild it on dismiss.
+    if (s_active && s_active->destroy) s_active->destroy();
+    lv_obj_clean(lv_scr_act());
+
+    s_ss_overlay = ss;
+    ESP_LOGI(TAG, "screensaver activate: %s", ss->name ? ss->name : "?");
+    if (ss->create) ss->create(lv_scr_act());
+
+    add_ss_catcher();
+}
+
+static void dismiss_screensaver(void)
+{
+    if (!s_ss_overlay) return;
+
+    // Dim "screensaver": the underlying screen was never torn down. Just remove
+    // the catcher and restore the saved brightness.
+    if (s_ss_dim) {
+        display_set_backlight(s_ss_dim_saved);
+        if (s_ss_catcher) { lv_obj_delete(s_ss_catcher); s_ss_catcher = NULL; }
+        ESP_LOGI(TAG, "screensaver dismiss → dim (brightness=%d)", s_ss_dim_saved);
+        s_ss_dim     = false;
+        s_ss_overlay = NULL;
+        return;
+    }
+
+    if (s_ss_overlay->destroy) s_ss_overlay->destroy();
+    ESP_LOGI(TAG, "screensaver dismiss → %s",
+             s_active && s_active->name ? s_active->name : "?");
+    s_ss_overlay = NULL;
+    s_ss_catcher = NULL;   // cleaned together with the overlay below
+    lv_obj_clean(lv_scr_act());
+
+    if (s_active && s_active->create) s_active->create(lv_scr_act());
+    reassert_background();
+}
+
+// --------------------------------------------------------------------------
+// Public API
+// --------------------------------------------------------------------------
+
+// Bridge from events_service: fire → push ui_event_t onto the queue.
+// Called from the esp_timer task — only non-blocking operations allowed.
+static void on_event_fired(const event_t *e)
+{
+    // Scheduled playback isn't a notification — it just starts a source. Surface
+    // the matching player screen instead of the fullscreen event toast. A stop
+    // schedule surfaces nothing — the current screen shows the stopped state.
+    if (e->type == EV_SCHEDULE) {
+        if (!e->sound[0] && e->station == EVENT_STATION_STOP) return;
+        ui_event_t nav = {
+            .type      = UI_EVT_NAVIGATE,
+            .screen_id = e->sound[0] ? SCREEN_SD : SCREEN_RADIO,
+        };
+        ui_event_send(&nav);
+        return;
+    }
+
+    ui_event_t uie = { .type = UI_EVT_EVENT_FIRED };
+    strncpy(uie.event_info.id,    e->id,    sizeof(uie.event_info.id)    - 1);
+    strncpy(uie.event_info.title, e->title, sizeof(uie.event_info.title) - 1);
+    uie.event_info.hour     = e->hour;
+    uie.event_info.minute   = e->minute;
+    strncpy(uie.event_info.type_label, events_type_label(e->type),
+            sizeof(uie.event_info.type_label) - 1);
+    strncpy(uie.event_info.image, e->image, sizeof(uie.event_info.image) - 1);
+    uie.event_info.text_pos = (int)e->text_pos;
+    ui_event_send(&uie);
+}
+
+// Called from the updater check task: either a strictly newer firmware exists,
+// or the firmware is current but the web-UI files are stale (SCREEN_UPDATE reads
+// the updater accessors to render the right prompt). The check itself always
+// runs (it doubles as the usage check-in); settings.update.enable only gates
+// showing the prompt. ui_navigate only posts to the event queue, so this is safe
+// off the LVGL thread.
+static void on_update_available(void)
+{
+    if (settings_get()->update.enable) ui_navigate(SCREEN_UPDATE);
+}
+
+// Called from the OTA task with download progress (0..100, -1 = failed). Forwarded
+// to SCREEN_OTA via the same event the web OTA uses. Thread-safe queue post.
+static void on_update_progress(int pct)
+{
+    ui_event_t ev = { .type = UI_EVT_OTA_PROGRESS, .ota_progress = pct };
+    ui_event_send(&ev);
+}
+
+// Net-wallpaper fetch lifecycle, both hooks fire on the fetch task. The status
+// pill (net_fetch_overlay) is pure widget work → UI_EVT_NET_WP; adoption of a
+// new buffer (net_wallpaper_commit) additionally rides UI_EVT_BG_CHANGED,
+// whose handler calls ui_background_reload_wallpaper().
+static void on_net_wallpaper_started(void)
+{
+    ui_event_t ev = { .type = UI_EVT_NET_WP, .net_wp_state = 1 };
+    ui_event_send(&ev);
+}
+
+static void on_weather_update(void)
+{
+    ui_event_t ev = { .type = UI_EVT_WEATHER_UPDATE };
+    ui_event_send(&ev);
+}
+
+// Fires on the cover_art worker task once a folder's cover.bin exists.
+static void on_cover_art_done(void)
+{
+    ui_event_t ev = { .type = UI_EVT_SD_COVER };
+    ui_event_send(&ev);
+}
+
+static void on_net_wallpaper_done(bool ok)
+{
+    ui_event_t ev = { .type = UI_EVT_NET_WP, .net_wp_state = ok ? 0 : -1 };
+    ui_event_send(&ev);
+    // Always post BG_CHANGED, including on failure: `ok` is false when ANY slot
+    // of a batch failed, and the slots that did succeed still have buffers
+    // waiting for net_wallpaper_commit(). The commit is a no-op when nothing is
+    // pending, so this costs nothing in the all-failed case.
+    ui_event_t bg = { .type = UI_EVT_BG_CHANGED };
+    ui_event_send(&bg);
+}
+
+void ui_manager_init(void)
+{
+    s_event_queue = xQueueCreate(UI_EVENT_QUEUE_SIZE, sizeof(ui_event_t));
+    configASSERT(s_event_queue);
+
+    app_state_subscribe(on_state_change);
+    events_service_set_fire_cb(on_event_fired);
+    updater_set_notify_cb(on_update_available);
+    updater_set_progress_cb(on_update_progress);
+    net_wallpaper_set_done_cb(on_net_wallpaper_done);
+    net_wallpaper_set_start_cb(on_net_wallpaper_started);
+
+    weather_set_update_cb(on_weather_update);
+    cover_art_set_done_cb(on_cover_art_done);
+    ESP_LOGI(TAG, "Initialized");
+}
+
+void ui_navigate(ui_screen_id_t screen_id)
+{
+    ui_event_t ev = {
+        .type      = UI_EVT_NAVIGATE,
+        .screen_id = screen_id
+    };
+    ui_event_send(&ev);
+}
+
+// Dropped-event counter. NEVER log from here: ui_event_send runs in the
+// caller's context (e.g. encoder_task, whose stack is tiny). Under a flood
+// (rapid encoder spin) the queue fills and ESP_LOGW's vprintf would blow that
+// small stack — which is exactly what caused the encoder_task stack-overflow /
+// spinlock-corruption resets. We only bump a counter here; the ui loop logs it
+// throttled, on its own generous stack.
+static volatile uint32_t s_dropped_events = 0;
+
+void ui_event_send(const ui_event_t *ev)
+{
+    if (!s_event_queue) return;
+    // don't block — if the queue is full, drop the event (counted, logged later)
+    if (xQueueSend(s_event_queue, ev, 0) != pdTRUE) {
+        s_dropped_events++;
+    }
+}
+
+void ui_event_send_from_isr(const ui_event_t *ev)
+{
+    if (!s_event_queue) return;
+    BaseType_t woken = pdFALSE;
+    xQueueSendFromISR(s_event_queue, ev, &woken);
+    portYIELD_FROM_ISR(woken);
+}
+
+void ui_input_send(ui_input_t input)
+{
+    ui_event_t ev = {
+        .type  = UI_EVT_INPUT,
+        .input = input,
+    };
+    ui_event_send(&ev);
+}
+
+// Pointer-indev press hook: LVGL touch widgets bypass the ui_manager event
+// queue, so without this the idle timer would keep ticking while the user
+// taps. Registered once per pointer indev at startup; fires before widget
+// dispatch, so it works regardless of which widget catches the press.
+static void pointer_press_note_cb(lv_event_t *e)
+{
+    (void)e;
+    s_last_input_us = esp_timer_get_time();
+}
+
+// --------------------------------------------------------------------------
+// Touch gesture dispatch — one screen-level handler, maps LVGL gesture
+// direction to UI_INPUT_SWIPE_* and pushes through the normal input pipeline.
+// LV_EVENT_GESTURE bubbles up from children by default (GESTURE_BUBBLE flag),
+// so attaching to lv_scr_act() once catches swipes anywhere on the screen.
+// --------------------------------------------------------------------------
+
+static void gesture_dispatch_cb(lv_event_t *e)
+{
+    (void)e;
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    ui_input_t in;
+    switch (dir) {
+        case LV_DIR_LEFT:   in = UI_INPUT_SWIPE_LEFT;  break;
+        case LV_DIR_RIGHT:  in = UI_INPUT_SWIPE_RIGHT; break;
+        case LV_DIR_TOP:    in = UI_INPUT_SWIPE_UP;    break;
+        case LV_DIR_BOTTOM: in = UI_INPUT_SWIPE_DOWN;  break;
+        default:            return;
+    }
+    // Suppress the trailing click on the same press — without this,
+    // controls_overlay (tap-to-show on screen_radio/bt) would pop up
+    // every time a swipe ends.
+    lv_indev_wait_release(indev);
+    ui_input_send(in);
+}
+
+// --------------------------------------------------------------------------
+// Main loop — the only place we touch LVGL
+// --------------------------------------------------------------------------
+
+// Show or hide LVGL's built-in performance monitor. Must run on the LVGL task.
+//
+// LVGL auto-creates the perf monitor once inside lv_display_create(), so we
+// only ever toggle the HIDDEN flag on that single label. Calling
+// lv_sysmon_show_performance() is deliberately avoided: it is not idempotent —
+// every call recreates the label (plus a fresh timer/observer/LV_EVENT_ALL cb)
+// and orphans the previous one, which shows up as a frozen "ghost" overlay and
+// leaks per-frame callbacks on repeated toggles.
+static void apply_fps_overlay(void)
+{
+#if defined(LV_USE_PERF_MONITOR) && LV_USE_PERF_MONITOR
+    lv_display_t *disp = lv_display_get_default();
+    if (!disp || !disp->perf_label) return;   // nothing was created → nothing to do
+    if (settings_get()->display.show_fps)
+        lv_obj_remove_flag(disp->perf_label, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_add_flag(disp->perf_label, LV_OBJ_FLAG_HIDDEN);
+#endif
+}
+
+void ui_manager_run(void)
+{
+    s_last_input_us = esp_timer_get_time();
+
+    apply_fps_overlay();   // reflect settings.display.show_fps at boot
+
+#if defined(UI_PROFILE_MONO_128X64)
+    // LVGL's built-in default is ASCII-only montserrat_14. The EU face has
+    // Latin-1 / Latin Extended-A (é, à, ç, œ, …) used by station names and ICY.
+    lv_obj_set_style_text_font(lv_scr_act(), &lv_font_montserrat_12_eu, 0);
+#endif
+
+    // Attach gesture handler to the (singleton) active screen object — it
+    // survives lv_obj_clean() between navigations because clean only removes
+    // children, not callbacks on the screen itself.
+    // Clear scrollable flag so horizontal drags don't get swallowed as native
+    // scroll (which would suppress LV_EVENT_GESTURE).
+    lv_obj_clear_flag(lv_scr_act(), LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(lv_scr_act(), gesture_dispatch_cb, LV_EVENT_GESTURE, NULL);
+
+    // Dithered gradient background, applied once to the singleton screen object.
+    // lv_obj_clean() only removes children, so it persists under every screen.
+    // s_active_id is still the SCREEN_COUNT sentinel here → global wallpaper.
+    ui_background_apply(lv_scr_act(), s_active_id);
+
+    for (lv_indev_t *id = lv_indev_get_next(NULL); id; id = lv_indev_get_next(id)) {
+        if (lv_indev_get_type(id) == LV_INDEV_TYPE_POINTER) {
+            lv_indev_add_event_cb(id, pointer_press_note_cb, LV_EVENT_PRESSED, NULL);
+        }
+    }
+
+    do_navigate(SCREEN_SPLASH);
+
+    // Subscribe to the task watchdog. ESP_TASK_WDT_PANIC is off, so this never
+    // resets the device — it turns "the screen froze but the radio kept playing"
+    // (this task stuck on an unbounded wait, which produces no console output at
+    // all) into a backtrace naming the function it is stuck in. A slow screen
+    // rebuild can trip it too; a false positive costs one warning, which is a
+    // far better trade than another silent freeze report.
+    const bool wdt_ok = (esp_task_wdt_add(NULL) == ESP_OK);
+    if (!wdt_ok) ESP_LOGW(TAG, "task_wdt_add failed — freezes will stay silent");
+
+    ui_event_t ev;
+
+    while (1) {
+        // Cap at N events per cycle — prevents starving lv_timer_handler
+        int processed = 0;
+        while (processed < 8 && xQueueReceive(s_event_queue, &ev, 0) == pdTRUE) {
+            processed++;
+
+            if (ev.type == UI_EVT_NAVIGATE) {
+                do_navigate(ev.screen_id);
+                continue;
+            }
+            if (ev.type == UI_EVT_THEME_CHANGED) {
+                ui_background_apply(lv_scr_act(), s_active_id);   // swap gradient to match theme
+                if (s_active && s_active->apply_theme)
+                    s_active->apply_theme();
+                continue;
+            }
+            if (ev.type == UI_EVT_BG_CHANGED) {
+                // Assets ride the same fetch batch as the wallpapers, so they are
+                // adopted on the same event — and on the same task, which is what
+                // lodepng needs (it decodes through lv_malloc). New artwork only
+                // reaches a widget through create(), hence the rebuild; it already
+                // re-applies the background, so the plain path is the else.
+                const bool assets_changed = net_asset_commit() &&
+                                            ui_asset_screen_uses_slots(s_active_id);
+                ui_background_reload_wallpaper();     // re-read SD wallpapers if any
+                if (assets_changed) {
+                    do_rebuild_active();
+                } else {
+                    ui_background_apply(lv_scr_act(), s_active_id);   // gradient/wallpaper toggled
+                    lv_obj_invalidate(lv_scr_act());
+                }
+                continue;
+            }
+            if (ev.type == UI_EVT_PROFILE_CHANGED) {
+                do_rebuild_active();
+                continue;
+            }
+            if (ev.type == UI_EVT_FPS_CHANGED) {
+                apply_fps_overlay();
+                continue;
+            }
+            if (ev.type == UI_EVT_NET_WP) {
+                if (ev.net_wp_state == 1) net_fetch_overlay_show();
+                else                      net_fetch_overlay_done(ev.net_wp_state == 0);
+                continue;
+            }
+            if (ev.type == UI_EVT_EVENT_FIRED) {
+                // s_active_id always refers to the underlying screen (the
+                // overlay model keeps it stable while the screensaver is up).
+                if (s_active_id != SCREEN_EVENT_NOTIFICATION) {
+                    screen_event_notification_set_return(s_active_id);
+                }
+                screen_event_notification_set_info(&ev.event_info);
+                do_navigate(SCREEN_EVENT_NOTIFICATION);
+                continue;
+            }
+            if (ev.type == UI_EVT_INPUT) {
+                s_last_input_us = esp_timer_get_time();
+                if (s_ss_overlay) {
+                    // Any encoder/button action just dismisses the screensaver;
+                    // the underlying screen does NOT receive the input.
+                    dismiss_screensaver();
+                    continue;
+                }
+                if (s_active && s_active->on_input)
+                    s_active->on_input(ev.input);
+                continue;
+            }
+            if (s_active && s_active->on_event)
+                s_active->on_event(&ev);
+        }
+
+        // ── Report dropped events (throttled) ──────────────────────────────
+        // Logged here, on the ui task's stack — never in ui_event_send (see there).
+        if (s_dropped_events) {
+            static int64_t s_last_drop_log_us = 0;
+            int64_t now = esp_timer_get_time();
+            if (now - s_last_drop_log_us > 2000000) {   // at most once per 2 s
+                ESP_LOGW(TAG, "Event queue full: dropped %u event(s)",
+                         (unsigned)s_dropped_events);
+                s_dropped_events   = 0;
+                s_last_drop_log_us = now;
+            }
+        }
+
+        // ── Idle-driven screensaver activation ─────────────────────────────
+        if (!s_ss_overlay) {
+            const app_state_t *st = app_state_get();
+            if (st->scrsaver_delay > 0
+                && can_auto_screensaver_from(s_active_id)
+                && !(st->scrsaver_block_play && playback_active(st)))
+            {
+                int64_t idle_s = (esp_timer_get_time() - s_last_input_us) / 1000000;
+                if (idle_s >= st->scrsaver_delay) {
+                    ESP_LOGI(TAG, "screensaver auto-activate (idle=%llds, id=%d)",
+                             idle_s, st->scrsaver_id);
+                    activate_screensaver(st->scrsaver_id);
+                }
+            }
+        } else {
+            // Remote playback start (web, app, schedule, BT play) wakes the
+            // screen when the block-while-playing option is on.
+            const app_state_t *st = app_state_get();
+            if (st->scrsaver_block_play && playback_active(st)) {
+                ESP_LOGI(TAG, "screensaver dismiss: playback started");
+                dismiss_screensaver();
+            }
+        }
+
+        uint32_t delay_ms = lv_timer_handler();
+        if (delay_ms < 5)  delay_ms = 5;
+        if (delay_ms > 50) delay_ms = 50;
+        if (wdt_ok) esp_task_wdt_reset();
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    }
+}

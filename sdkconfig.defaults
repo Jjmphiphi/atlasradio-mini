@@ -1,0 +1,194 @@
+CONFIG_FREERTOS_ENABLE_BACKWARD_COMPATIBILITY=y
+
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+
+# OTA anti-brick: a freshly OTA-flashed app boots in PENDING_VERIFY and must
+# confirm itself (esp_ota_mark_app_valid_cancel_rollback) or the bootloader
+# rolls back to the previous slot on the next boot. wifi_manager confirms on the
+# first STA GOT_IP. No-op on the 8 MB factory layout (no OTA partitions).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+CONFIG_IDF_TARGET="esp32s3"
+
+CONFIG_ESP32_S3_ATLASCUBE_BOARD=y
+
+# Display + touch driver + flash size selection lives in main/include/defines.h.
+# Top-level CMakeLists.txt parses it and generates build/sdkconfig.variant
+# (CONFIG_DISPLAY_*, CONFIG_TOUCH_*, CONFIG_ESPTOOLPY_FLASHSIZE_*, CONFIG_PARTITION_TABLE_*FILENAME).
+
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# Allows placing the .bss segment in PSRAM (via EXT_RAM_BSS_ATTR).
+# Without this, the attribute is a no-op and large static arrays stay in internal RAM.
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+
+
+# WARNING: MBEDTLS_DYNAMIC_BUFFER + RENEGOTIATION = broken HTTPS
+# Eurozet CDN requires TLS renegotiation after connection is established.
+# Dynamic buffer cannot expand in time → PEER_CLOSE_NOTIFY (-0x7100).
+# Solution: use EXTERNAL_MEM_ALLOC instead of DYNAMIC_BUFFER.
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
+# Threshold: allocations below this value stay in internal RAM, larger ones → PSRAM.
+# Lowered 8192 → 4096 — internal RAM baseline is ~7-8KB largest block, so with
+# 8192 too many small mbedTLS/lwIP allocations stayed in internal RAM,
+# fragmenting it and breaking TLS handshake.
+# Lowered 4096 → 2048 — while the radio HTTPS stream runs, the internal largest
+# free block fell to ~2.3KB, too small for httpd to allocate a TCP TX pbuf
+# (~MSS 1440 B): serving a web asset failed with errno 11 / EWOULDBLOCK. Pushing
+# more sub-4KB mbedTLS/lwIP allocations to PSRAM frees the internal heap so the
+# pbuf fits and the web UI stays usable mid-stream.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=2048
+
+# HW AES disabled 2026-08-17. It was re-enabled on 2026-07-03 because software
+# AES-GCM (gcm_mult GHASH) on the TLS record path pegged CPU0 during HLS/HTTPS
+# playback → IDLE0 task_wdt + audible stutter. What that trade missed is the RAM
+# side of the AES-DMA path.
+#
+# MBEDTLS_EXTERNAL_MEM_ALLOC (above) puts the TLS buffers in PSRAM. The AES-DMA
+# driver cannot hand a cache-line-unaligned PSRAM buffer to the DMA engine, so
+# esp_aes_process_dma_ext_ram() bounces every TLS record through a 1600 B
+# (AES_MAX_CHUNK_WRITE_SIZE) block of DMA-capable *internal* RAM — one for input,
+# one for output, per record.
+#
+# That block is the scarcest thing on this device. Measured 2026-08-17 with the
+# TCP window already halved: mid-stream INT largest was 5632-7680 B while the
+# DMA-capable largest was 1536-1728 B, i.e. below what one bounce buffer needs.
+# The gap is RTCRAM (8 KB at 0x600FE000): components/heap/port/esp32s3 gives it
+# MALLOC_CAP_INTERNAL but not MALLOC_CAP_DMA, and it is last-priority so it sits
+# unused and inflates every INT reading by up to 8 KB nothing can DMA into.
+# The failure is "esp-aes: Failed to allocate memory" → esp-tls read error
+# -0x0001 → the stream dies a second after the decoder reports its sample rate.
+#
+# Software AES allocates from the general heap instead, which has 11-21 KB free
+# at the same moment, so this is the only change that removes the dependency on
+# DMA-capable RAM rather than just widening the margin. If CPU load regresses,
+# the alternative is ESP_WIFI_DYNAMIC_RX_BUFFER_NUM (IDF default 32, and what
+# actually fills the DMA pool mid-stream) — not turning this back on.
+#
+# SHA/MPI stay on: they accelerate the handshake, which is where HLS spends its
+# CPU, and neither sits on the per-record path that needed the bounce buffer.
+CONFIG_MBEDTLS_HARDWARE_AES=n
+CONFIG_MBEDTLS_HARDWARE_SHA=y
+CONFIG_MBEDTLS_HARDWARE_MPI=y
+
+# WARNING: DYNAMIC_BUFFER + renegotiation = broken HTTPS (Eurozet CDN)
+
+
+CONFIG_HTTPD_WS_SUPPORT=y
+CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# CONFIG_LV_FONT_MONTSERRAT_12=y
+# CONFIG_LV_FONT_MONTSERRAT_14=y
+# CONFIG_LV_FONT_MONTSERRAT_18=y
+# _48 is no longer built in: components/ui/fonts/lv_font_montserrat_48_eu.c
+# replaces it with the same LV_SYMBOL_* set plus the European Latin blocks.
+# _28 exists for hub_overlay button glyphs on small panels: an unscaled font
+# render is far cheaper than transform_scale-ing _48 down (scaled labels go
+# through an intermediate layer — 11 at once made showing the overlay crawl
+# while a stream keeps the LVGL core busy).
+CONFIG_LV_FONT_MONTSERRAT_28=y
+
+# On-screen FPS + CPU% overlay (bottom-right) for perf/stability testing.
+# PERF_MONITOR requires SYSMON, which requires OBSERVER. Kept in Kconfig (not a
+# -D on the lvgl lib) because these change lv_global_t layout and must be seen
+# identically by every translation unit.
+CONFIG_LV_USE_OBSERVER=y
+CONFIG_LV_USE_SYSMON=y
+CONFIG_LV_USE_PERF_MONITOR=y
+
+# PNG decoder (LVGL's bundled lodepng) — internet asset slots download plain
+# .png artwork and decode it on the device, so knob images keep the alpha channel
+# a JPEG cannot carry. net_asset.c calls lodepng_decode32() directly.
+CONFIG_LV_USE_LODEPNG=y
+# lodepng allocates through lv_malloc, i.e. out of LVGL's builtin pool (PSRAM
+# .bss, see the root CMakeLists), and its peak is ~8 B per source pixel: the
+# inflated scanlines plus the ARGB8888 output exist at the same time. The pool
+# also holds LVGL's own objects/styles, so 64 KB would cap assets at ~8 kpx and
+# crowd the UI while decoding. 256 KB carries net_asset's 16 kpx ceiling (128x128
+# of artwork, ~128 KB transient) with the pool still half free. PSRAM only.
+CONFIG_LV_MEM_SIZE_KILOBYTES=256
+
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# Segmented HLS (.m3u8) radio opens a fresh TLS connection per .ts segment and
+# per playlist refresh — without connection reuse this is ~0.5 conn/s. With the
+# default 60 s TIME_WAIT (TCP_MSL) the closed sockets pile up past the 16-socket
+# pool and new connects start timing out. Shortening TIME_WAIT to 10 s frees
+# them ~6x faster so the pool never exhausts.
+CONFIG_LWIP_TCP_MSL=10000
+
+# TCP receive window. The IDF default of 5760 B is too small for 256 kbps audio:
+# a small window forces frequent ACKs and the bandwidth-delay product caps
+# throughput, so TCP slow-start cannot fill the esp-adf ring buffer and playback
+# stutters at start.
+#
+# 32768 was the first answer to that and it cost more than it bought. The window
+# is held as lwIP pbufs in *internal* RAM, and the pipeline drains it at the
+# stream bitrate (16 KB/s for 128 kbps), so it sits full for the whole stream:
+# measured 2026-08-17, every [pre-connect] → [mid-stream] pair lost 15-20 KB of
+# internal RAM. WiFi fills the window in bursts, so the dips are transient and
+# invisible to free/largest — only heap_caps_get_minimum_free_size() catches them,
+# and it bottomed out at 667 B of total internal free.
+#
+# That starves the 1600 B DMA-capable internal block esp-aes allocates per TLS
+# record (AES_MAX_CHUNK_WRITE_SIZE, reached because MBEDTLS_EXTERNAL_MEM_ALLOC
+# puts the TLS buffers in PSRAM and the AES-DMA path has to bounce them through
+# internal RAM — see MBEDTLS_HARDWARE_AES above). It surfaces as
+# "esp-aes: Failed to allocate memory" → esp-tls read error -0x0001 → the stream
+# dies mid-playback, and the device retries into an ever-worse heap.
+#
+# 16384 is still ~0.5 s at 256 kbps, and the real buffer is the esp-adf ring in
+# PSRAM. If start-up stutter comes back the next step is 20480, not 32768.
+# RECVMBOX follows the Kconfig rule WND/MSS + 2 = 16384/1440 + 2 ≈ 13, rounded up.
+#
+# CONFIG_LWIP_TCP_RCV_BUF_DEFAULT used to sit here and did nothing: no such symbol
+# exists in components/lwip/Kconfig: LWIP_TCP_WND_DEFAULT is the only receive-window
+# knob. Do not re-add it.
+CONFIG_LWIP_TCP_WND_DEFAULT=16384
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=16
+
+# WiFi internal-RAM tuning. These trim WiFi's internal DMA-RAM footprint and
+# were previously only in the (gitignored) sdkconfig — a clean rebuild reset them
+# to the larger IDF defaults and the device ran out of internal RAM at boot
+# (fopen → lock_init_generic → abort). Kept here so they survive clean builds.
+#  - fewer static RX buffers, dynamic (on-demand) TX buffers instead of 16 static
+#  - smaller block-ack RX window, no out-of-sequence pbuf queue
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=10
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=4
+
+# NOTE: do NOT enable CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP. It forces WiFi into
+# the *static* TX-buffer model (16 DMA-capable TX buffers + 32 tx-cache, all in
+# internal RAM), which consumed MORE internal DRAM than it freed: idle largest
+# free block dropped 14 KB → 3.5 KB and the audio dsp/i2s tasks failed to create
+# (audio_thread_create failed). DYNAMIC_TX_BUFFER above is the smaller-footprint
+# choice; the page-serve-under-stream RAM pressure must be solved elsewhere.
+
+CONFIG_LV_USE_FONT_PLACEHOLDER=n
+
+# FATFS long file names on the SD card. The IDF default (LFN_NONE) restricts SD
+# filenames to 8.3, so anything with a >3-char extension (.html, .json) or >8-char
+# base fails fopen() — e.g. the SPIFFS↔SD backup manager and slides.json. HEAP
+# variant keeps the LFN work buffer off the (tight) internal DRAM and off the
+# audio/http task stacks; ~(MAX_LFN+1)*2 B malloc'd per directory op, freed after.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+
+# Core 1 is the compute core by design (aac/rsp/dsp decode tasks + LVGL, all
+# prio 5): a 48 kHz stream (e.g. HLS video audio) needs a real 48000->44100
+# resample and legitimately saturates the core for >5 s, starving IDLE1 and
+# spamming task_wdt warnings. That is a working state, not a hang, so IDLE1
+# leaves the watchdog; IDLE0 (Wi-Fi/lwIP/system core) stays supervised.
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=n
+
+# CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y

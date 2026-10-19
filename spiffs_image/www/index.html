@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AtlasCube</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ═══════════════════════ HEADER ═══════════════════════ -->
+<header class="app-header">
+    <div class="logo">
+        <span class="logo-icon">◈</span>
+        <div class="logo-stack">
+            <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+            <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+        </div>
+    </div>
+    <div class="header-right">
+        <button class="help-btn" onclick="openWelcome()" title="Help" aria-label="Help">?</button>
+        <span class="fw-version" id="fwVersion"></span>
+    </div>
+</header>
+
+<a id="wwwOutdatedBar" href="/settings.html" class="www-outdated-bar" style="display:none">
+    ⚠️ Web UI is out of date with the firmware — tap to update
+</a>
+
+<!-- Above the card and in the one colour nothing else on this page uses: the
+     screen preview is the feature worth finding, and it is not a tool that
+     belongs in the toolbar down there. -->
+<a href="/preview.html" class="preview-link">
+    <span class="preview-link-icon" aria-hidden="true">▣</span>
+    <span class="preview-link-copy">
+        <span class="preview-link-title">Screen preview</span>
+        <span class="preview-link-subtitle">See the device's screens live in the browser</span>
+    </span>
+    <span class="preview-link-arrow" aria-hidden="true">→</span>
+</a>
+
+<!-- ═══════════════════════ CARD ═══════════════════════ -->
+<main class="card">
+
+    <!-- ── Audio Source ── -->
+    <section class="panel">
+        <div class="panel-label">AUDIO SOURCE</div>
+        <div class="theme-toggle" id="audioSourceToggle" style="width:fit-content">
+            <button class="theme-btn src-btn" id="srcRadioBtn" onclick="setAudioSource(false)">📻 Radio</button>
+            <button class="theme-btn src-btn" id="srcBtBtn"    onclick="setAudioSource(true)">🔵 Bluetooth</button>
+        </div>
+    </section>
+
+    <!-- ── Now Playing ── -->
+    <section class="now-playing">
+        <div class="np-inner">
+            <div id="station_name" class="station-name">---</div>
+            <div id="title"        class="track-title">---</div>
+            <div id="audio_info"   class="audio-info">---</div>
+        </div>
+        <div id="status" class="status-badge">⏹ Stopped</div>
+    </section>
+
+    <!-- ── Volume ── -->
+    <section class="panel">
+        <div class="slider-row">
+            <span class="slider-label">🔊 Volume</span>
+            <span id="vol_value" class="slider-value">50</span>
+        </div>
+        <input type="range" min="0" max="100" value="50"
+               id="volume_slider" oninput="onVolumeChange(this.value)" />
+    </section>
+
+    <!-- ── Play Button ── -->
+    <button id="play_btn" class="btn-play" onclick="playCurrent()">▶ Play</button>
+
+    <!-- ── Stations ── -->
+    <section class="panel">
+        <div class="panel-label">📻 STATIONS</div>
+        <div id="stations" class="stations-list"></div>
+        <a href="/playlist.html#search" class="discover-link">
+            <span class="discover-link-icon" aria-hidden="true">◉</span>
+            <span class="discover-link-copy">
+                <span class="discover-link-title">Discover stations</span>
+                <span class="discover-link-subtitle">Browse the online radio directory</span>
+            </span>
+            <span class="discover-link-arrow" aria-hidden="true">→</span>
+        </a>
+    </section>
+
+    <!-- ── Toolbar ── -->
+    <div class="toolbar">
+        <button class="tool-btn" onclick="openEq()">🎛 Radio EQ</button>
+        <a href="/bt.html" class="tool-btn tool-link">🔵 Bluetooth</a>
+        <a href="/sd-player.html" class="tool-btn tool-link">🎵 SD Player</a>
+        <a href="/playlist.html" class="tool-btn tool-link">📻 Playlist</a>
+        <a href="/events.html" class="tool-btn tool-link">🗓 Events</a>
+        <a href="/settings.html" class="tool-btn tool-link">⚙ Settings</a>
+    </div>
+
+</main>
+
+<!-- ═══════════════════════ MODAL: EQUALIZER ═══════════════════════ -->
+<div id="eq_modal" class="modal hidden" onclick="onModalBgClick(event,'eq_modal')">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">🎛 Equalizer</span>
+            <button class="modal-close" onclick="closeEq()">✕</button>
+        </div>
+        <canvas id="eq_canvas" width="320" height="120"></canvas>
+        <div class="eq-wrapper">
+            <div id="eq_bands"></div>
+            <div class="eq-scale">
+                <span>+6</span>
+                <span>0</span>
+                <span>−13</span>
+            </div>
+        </div>
+        <div class="eq-footer">
+            <button class="btn-secondary" onclick="resetEQ()">↺ Reset</button>
+            <button class="btn-secondary" onclick="closeEq()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════ MODAL: WELCOME ═══════════════════════ -->
+<div id="welcome_modal" class="modal hidden" onclick="onModalBgClick(event,'welcome_modal')">
+    <div class="modal-content">
+        <div class="modal-header">
+            <span class="modal-title">👋 Welcome to AtlasCube</span>
+            <button class="modal-close" onclick="closeWelcome()">✕</button>
+        </div>
+        <div class="field-hint" style="font-size:12px;line-height:1.6">
+            Your Wi-Fi internet radio. A few quick steps to get started:
+            <ul style="margin:8px 0 0;padding-left:18px">
+                <li>Connect to Wi-Fi &amp; set the clock</li>
+                <li>Pick a station and press Play</li>
+                <li>Or stream via Bluetooth / play from SD</li>
+            </ul>
+        </div>
+        <a href="help.html" class="tool-btn tool-link" style="width:fit-content;padding:8px 14px;margin-top:4px">📖 Full guide</a>
+        <label class="welcome-dontshow">
+            <input type="checkbox" id="welcome_dontshow" checked />
+            <span>Don't show this again</span>
+        </label>
+        <div class="eq-footer">
+            <button class="btn-secondary" onclick="closeWelcome()">Let's go →</button>
+        </div>
+    </div>
+</div>
+
+<script src="app.js?v=play-status"></script>
+</body>
+</html>

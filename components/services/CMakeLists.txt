@@ -1,0 +1,23 @@
+set(SERVICES_SRCS
+    "radio_service.c"
+    "media_control.c"
+    "sd_player.c"
+    "ntp_service.c"
+    "dim_schedule.c"
+    "cover_art_stub.c"
+)
+idf_component_register(
+    SRCS ${SERVICES_SRCS}
+    INCLUDE_DIRS "."
+    REQUIRES
+        app_state
+        ui
+        audio
+        esp_netif
+        lwip
+        playlist
+        display
+        settings_ex
+        bt_module
+        sdcard
+)

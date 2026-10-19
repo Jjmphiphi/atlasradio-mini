@@ -1,0 +1,46 @@
+set(DRIVERS "")
+
+if(CONFIG_DISPLAY_ILI9341)
+    list(APPEND DRIVERS "drivers/ili9341.c")
+endif()
+
+if(CONFIG_DISPLAY_ST7789V)
+    list(APPEND DRIVERS "drivers/st7789v.c")
+endif()
+
+if(CONFIG_DISPLAY_CO5300)
+    list(APPEND DRIVERS "drivers/co5300.c")
+endif()
+
+if(CONFIG_DISPLAY_ST7796)
+    list(APPEND DRIVERS "drivers/st7796.c")
+endif()
+
+if(CONFIG_DISPLAY_ILI9488)
+    list(APPEND DRIVERS "drivers/ili9488.c")
+endif()
+
+if(CONFIG_DISPLAY_SSD1322)
+    list(APPEND DRIVERS "drivers/ssd1322.c")
+endif()
+
+if(CONFIG_DISPLAY_SSD1306)
+    list(APPEND DRIVERS "drivers/ssd1306.c")
+endif()
+
+idf_component_register(
+    SRCS 
+        "display.c"
+        ${DRIVERS}
+    INCLUDE_DIRS 
+        "."
+        "drivers"
+    REQUIRES
+        lvgl
+        driver
+        audio_board
+        esp_lcd
+        ui
+        board_pins
+        trace
+)

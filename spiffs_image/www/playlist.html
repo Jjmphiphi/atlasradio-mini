@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AtlasCube – Playlist</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="playlist.css">
+</head>
+<body>
+
+<header class="app-header">
+    <div class="logo">
+        <span class="logo-icon">◈</span>
+        <div class="logo-stack">
+            <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+            <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+        </div>
+    </div>
+</header>
+
+<main class="card card--wide">
+    <a href="/" class="back-link">← Back to Radio</a>
+
+    <div class="section-title">📻 Playlist editor</div>
+
+    <div class="panel">
+        <div class="rb-search">
+            <button class="rb-toggle" type="button" onclick="rbTogglePanel()" aria-controls="rb_panel" aria-expanded="false">
+                <span class="rb-toggle-icon" aria-hidden="true">◉</span>
+                <span class="rb-toggle-copy">
+                    <span class="rb-toggle-title">Discover stations</span>
+                    <span class="rb-toggle-dim">Browse the radio-browser.info directory</span>
+                </span>
+                <span id="rb_arrow" class="rb-toggle-arrow" aria-hidden="true">▸</span>
+            </button>
+            <div id="rb_panel" class="rb-panel" hidden>
+                <div class="rb-form">
+                    <select id="rb_by" class="field-input rb-by">
+                        <option value="name">Name</option>
+                        <option value="tag">Tag</option>
+                        <option value="country">Country</option>
+                    </select>
+                    <input id="rb_query" type="text" class="field-input rb-query"
+                           placeholder="e.g. jazz, BBC, Poland…" maxlength="64"
+                           onkeydown="if (event.key === 'Enter') rbSearch()">
+                    <button class="btn-secondary" id="rb_search_btn" onclick="rbSearch()">Search</button>
+                </div>
+                <div id="rb_results" class="rb-results"></div>
+                <div id="rb_status" class="rb-status"></div>
+            </div>
+        </div>
+
+        <div class="pl-hint">Drag ⠿ to reorder. Click ☆ to mark favorite. Station icons are converted and stored under <code>/station-icons</code> on the SD card. Max <span id="pl_max">512</span> stations.</div>
+        <div class="pl-save-note"><strong>Important:</strong> Finding or uploading icons only puts their files on the SD card. Click <strong>Save &amp; Apply</strong> to assign them to stations.</div>
+        <div id="pl_list" class="pl-list"></div>
+
+        <div class="pl-actions">
+            <button class="btn-secondary" onclick="plAddRow()">➕ Add station</button>
+            <button class="btn-secondary" id="icons_missing_btn" onclick="iconFindMissing()">◉ Find missing icons</button>
+            <button class="btn-secondary" id="icons_audit_btn" onclick="iconAudit()">🧹 Check icon files</button>
+            <button id="pl_save_btn" onclick="plSave()">💾 Save &amp; Apply</button>
+            <button class="pl-download" onclick="document.getElementById('pl_import').click()"
+                    title="Replace current list with a CSV file">⬆ Import CSV</button>
+            <a class="pl-download" href="/api/playlist.csv" download="playlist.csv"
+               title="Download last saved playlist">⬇ Download CSV</a>
+            <input id="pl_import" type="file" accept=".csv,text/csv,text/plain"
+                   onchange="plImport(this)" hidden>
+        </div>
+        <div class="pl-meta">
+            <span id="pl_count">0</span> / <span id="pl_max2">64</span> stations
+        </div>
+        <div id="pl_status" class="save-status"></div>
+        <div id="icon_audit" class="icon-audit"></div>
+    </div>
+</main>
+
+<div id="icon_modal" class="icon-modal" hidden>
+    <div class="icon-dialog" role="dialog" aria-modal="true" aria-labelledby="icon_title">
+        <div class="icon-dialog-head">
+            <div>
+                <div id="icon_title" class="icon-dialog-title">Station icon</div>
+                <div id="icon_station_name" class="icon-dialog-station"></div>
+            </div>
+            <button class="icon-close" type="button" onclick="iconClose()" aria-label="Close">✕</button>
+        </div>
+        <div class="icon-current">
+            <div id="icon_preview" class="icon-preview">◉</div>
+            <div class="icon-current-copy">
+                <strong>Icon on SD card</strong>
+                <span id="icon_current_path">No icon assigned</span>
+            </div>
+        </div>
+        <div class="icon-actions">
+            <button class="btn-secondary" id="icon_find_btn" type="button" onclick="iconFindCandidates()">⌕ Find automatically</button>
+            <label class="btn-secondary icon-upload">⬆ Upload image
+                <input id="icon_upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/x-icon" onchange="iconUploadSelected(this)" hidden>
+            </label>
+            <button class="btn-secondary" id="icon_sd_btn" type="button" onclick="iconSdToggle()">📂 From SD card</button>
+            <button class="btn-secondary icon-remove" type="button" onclick="iconRemove()">Remove assignment</button>
+        </div>
+        <div id="icon_sd_browser" class="icon-sd-browser" hidden></div>
+        <div id="icon_results" class="icon-results"></div>
+        <div id="icon_status" class="icon-status"></div>
+        <div class="icon-note">Uploaded and downloaded images are fitted into a 64×64 tile, converted to LVGL RGB565 and stored on the SD card. <strong>From SD card</strong> assigns a <code>.bin</code> that is already there, unchanged. Save &amp; Apply keeps the assignment in the playlist.</div>
+    </div>
+</div>
+
+<script src="lvbin.js"></script>
+<script src="sdbrowse.js"></script>
+<script src="playlist.js"></script>
+</body>
+</html>

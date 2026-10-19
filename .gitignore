@@ -1,0 +1,98 @@
+spiffs_image/web
+spiffs_image/www/www_version.txt
+components/web/web_assets_version.h
+# Transient PROJECT_VER freeze written by ci/build.py (removed after build)
+/version.txt
+TMP
+
+# ===== Build artifacts =====
+build/
+managed_components
+sdkconfig
+sdkconfig.old
+sdkconfig.defaults.stamp
+*.bin
+*.elf
+*.map
+*.hex
+.clangd
+
+# ===== CMake =====
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# ===== Ninja =====
+.ninja_deps
+.ninja_log
+
+# ===== ESP-IDF =====
+idf_component.yml.lock
+
+# ESP-ADF checkout when build.py clones it into the repo (default ./esp-adf)
+esp-adf/
+
+__pycache__/
+scripts/fonts/*.ttf
+scripts/fonts/*.otf
+scripts/fonts/*.bdf
+scripts/fonts/*.tar.gz
+scripts/fonts/spleen-2.1.0/
+
+# ===== Partition table / flashing =====
+flash_project_args
+flasher_args.json
+
+# ===== Python virtual env (Espressif tools) =====
+.espressif/
+.python_env/
+
+# ===== Logs =====
+*.log
+
+# ===== VS Code =====
+.vscode/*
+.claude
+# !.vscode/settings.json
+# !.vscode/launch.json
+# !.vscode/extensions.json
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Temporary =====
+*.tmp
+*.bak
+*.swp
+
+# ===== Archives =====
+*.zip
+*.tar
+*.gz
+
+# ===== Toolchain / downloads =====
+# tools/
+dist/
+downloads/
+
+# ===== Coverage / debug =====
+*.gcda
+*.gcno
+*.gcov
+
+# ===== C/C++ =====
+*.o
+*.a
+*.so
+# Exception: prebuilt closed-source libraries (lib/) are committed deliberately.
+!/lib/*.a
+
+# ===== Optional: local secrets =====
+# (jeśli będziesz trzymał WiFi itp.)
+secrets.h
+wifi_config.h
+# Exception: the secrets/ component header is real source (NVS-backed store),
+# not a local secret file — the bare secrets.h rule above would hide it.
+!/components/secrets/include/secrets.h

@@ -1,0 +1,3 @@
+## IDF Component Manager — web needs zlib for gzip of SPIFFS uploads.
+dependencies:
+  espressif/zlib: "^1.3.0"

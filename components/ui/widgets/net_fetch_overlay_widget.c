@@ -1,0 +1,138 @@
+#include "net_fetch_overlay_widget.h"
+#include "net_wallpaper.h"   // batch progress for the "2/5" counter
+#include "theme.h"
+#include "fonts/ui_fonts.h"
+#include "lvgl.h"
+#include <stdio.h>
+
+#define FAIL_HIDE_MS 3000
+#define PROGRESS_MS  500
+
+static lv_obj_t   *s_backdrop = NULL;   // covers the whole screen behind the pill
+static lv_obj_t   *s_pill  = NULL;
+static lv_obj_t   *s_label = NULL;
+static lv_timer_t *s_timer = NULL;   // one-shot for the fail message; exists only while it lingers
+static lv_timer_t *s_prog  = NULL;   // ticks the slot counter while a batch runs
+
+static void hide(void)
+{
+    if (s_pill) {
+        lv_obj_del(s_pill);
+        s_pill  = NULL;
+        s_label = NULL;
+    }
+    if (s_backdrop) {
+        lv_obj_del(s_backdrop);
+        s_backdrop = NULL;
+    }
+    if (s_timer) {
+        lv_timer_del(s_timer);
+        s_timer = NULL;
+    }
+    if (s_prog) {
+        lv_timer_del(s_prog);
+        s_prog = NULL;
+    }
+}
+
+// A batch stops the radio for its whole duration, so the pill has to show that
+// the silence is finite: "Updating wallpapers 2/5". Polled rather than pushed —
+// the fetch task must not touch LVGL, and half a second of lag is invisible.
+static void set_progress_text(void)
+{
+    if (!s_label) return;
+    int done = 0, total = 0;
+    net_wallpaper_progress(&done, &total);
+    if (total > 1) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Updating wallpapers %d/%d",
+                 (done < total) ? done + 1 : total, total);
+        lv_label_set_text(s_label, buf);
+    } else {
+        lv_label_set_text(s_label, "Updating wallpaper...");
+    }
+    lv_obj_center(s_pill);
+}
+
+static void progress_cb(lv_timer_t *t)
+{
+    (void)t;
+    set_progress_text();
+}
+
+static void hide_cb(lv_timer_t *t)
+{
+    (void)t;
+    hide();
+}
+
+void net_fetch_overlay_show(void)
+{
+    const ui_theme_colors_t *th = theme_get();
+
+    // A new fetch while the previous fail message still lingers — drop its timer.
+    if (s_timer) {
+        lv_timer_del(s_timer);
+        s_timer = NULL;
+    }
+
+    // A full-screen plate in the theme background colour: the message reads on
+    // a plain surface instead of floating over the wallpaper and the widgets.
+    // Opaque, not translucent — an alpha wash would force a per-frame reblend
+    // of everything under it (the VU lesson).
+    if (!s_backdrop) {
+        s_backdrop = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(s_backdrop);
+        lv_obj_set_size(s_backdrop, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_bg_color(s_backdrop, lv_color_hex(th->bg_primary), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s_backdrop, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(s_backdrop, LV_OBJ_FLAG_SCROLLABLE);
+        // Covers the panel edge to edge — must not swallow taps meant for the
+        // screen underneath.
+        lv_obj_clear_flag(s_backdrop, LV_OBJ_FLAG_CLICKABLE);
+    }
+
+    if (!s_pill) {
+        s_pill = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(s_pill);
+        lv_obj_set_style_bg_color(s_pill, lv_color_hex(th->bg_secondary), LV_PART_MAIN);
+        // Solid too, so the pill still reads as a card on the backdrop.
+        lv_obj_set_style_bg_opa(s_pill, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_color(s_pill, lv_color_hex(th->accent), LV_PART_MAIN);
+        lv_obj_set_style_border_width(s_pill, 1, LV_PART_MAIN);
+        lv_obj_set_style_radius(s_pill, 8, LV_PART_MAIN);
+        lv_obj_set_style_pad_hor(s_pill, 16, LV_PART_MAIN);
+        lv_obj_set_style_pad_ver(s_pill, 10, LV_PART_MAIN);
+        lv_obj_set_size(s_pill, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_clear_flag(s_pill, LV_OBJ_FLAG_SCROLLABLE);
+
+        s_label = lv_label_create(s_pill);
+        lv_obj_set_style_text_font(s_label, &lv_font_montserrat_18_eu, LV_PART_MAIN);
+        lv_obj_set_style_text_color(s_label, lv_color_hex(th->accent), LV_PART_MAIN);
+        // Narrow panels (240 px): wrap instead of overflowing the screen.
+        lv_obj_set_style_max_width(s_label, LV_HOR_RES - 56, LV_PART_MAIN);
+        lv_obj_set_style_text_align(s_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    }
+
+    set_progress_text();
+    if (!s_prog) s_prog = lv_timer_create(progress_cb, PROGRESS_MS, NULL);
+    lv_obj_move_background(s_backdrop);   // …but still above the screen itself
+    lv_obj_move_foreground(s_pill);
+}
+
+void net_fetch_overlay_done(bool ok)
+{
+    if (!s_pill) return;
+    if (s_prog) {                 // the counter stops with the batch
+        lv_timer_del(s_prog);
+        s_prog = NULL;
+    }
+    if (ok) {
+        hide();
+        return;
+    }
+    lv_label_set_text(s_label, "Wallpaper update failed");
+    lv_obj_center(s_pill);   // re-center for the longer text
+    s_timer = lv_timer_create(hide_cb, FAIL_HIDE_MS, NULL);
+    lv_timer_set_repeat_count(s_timer, 1);
+}

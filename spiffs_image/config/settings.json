@@ -1,0 +1,61 @@
+{
+  "audio": {
+    "volume": 20,
+    "eq": [-13, -5, -2, 0, 0, 4, 8, 9, 9, 9],
+    "eq_enabled": true
+  },
+  "playlist": {
+    "curr_index": 0
+  },
+  "display": {
+    "screen": 3,
+    "brightness": 100,
+    "theme": "dark",
+    "dim_schedule": {
+      "enabled": false,
+      "dim_hour": 22,
+      "dim_minute": 0,
+      "dim_brightness": 20,
+      "bright_hour": 7,
+      "bright_minute": 0
+    }
+  },
+  "bluetooth": {
+    "enable": false,
+    "show_screen": true,
+    "volume": 20
+  },
+  "ntp": {
+    "server1": "pool.ntp.org",
+    "server2": "time.cloudflare.com",
+    "tz": "CET-1CEST,M3.5.0,M10.5.0/3"
+  },
+  "wifi": {
+    "ssid": ""
+  },
+  "scrsaver": {
+    "delay": 120,
+    "id": "clockhands",
+    "dim_level": 20,
+    "block_when_playing": 0
+  },
+  "dashboard": {
+    "title": "USD/PLN",
+    "url": "https://api.nbp.pl/api/exchangerates/rates/A/USD?format=json",
+    "json_path": "rates[0].mid",
+    "suffix": " PLN",
+    "poll_interval_ms": 60000,
+    "notify": {
+      "enabled": true,
+      "value_type": "number",
+      "num_low_en": false,
+      "num_low": 0,
+      "num_high_en": true,
+      "num_high": 3.64,
+      "str_eq_en": false,
+      "str_eq": "",
+      "str_ne_en": false,
+      "str_ne": ""
+    }
+  }
+}

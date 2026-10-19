@@ -1,0 +1,119 @@
+// Auto-update API.
+//
+// 4 MB Super Mini: updater.c implements these as no-ops (no inactive OTA slot).
+// app_fw_variant() is still real so /api/diag can report the board variant.
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Called (from the updater task context) when a check finds a newer, non-skipped
+// version, OR — when the firmware is current — when the web-UI files on the www
+// partition are stale (see updater_www_stale). The callback must be cheap and
+// thread-safe — the UI registers one that just posts a navigate to SCREEN_UPDATE;
+// the screen reads updater_update_available()/updater_www_outdated() to render
+// the right prompt. Registering here (rather than the lib calling ui_navigate
+// itself) keeps the prebuilt free of any UI dependency, so the ui→updater
+// dependency stays one-way (no circular REQUIRES).
+typedef void (*updater_notify_cb_t)(void);
+
+// Download progress during updater_apply(): pct 0..100, or -1 on failure. Same
+// contract as UI_EVT_OTA_PROGRESS — the UI registers a cb that forwards it to
+// SCREEN_OTA. Called from the OTA task, so keep it to a thread-safe queue post.
+typedef void (*updater_progress_cb_t)(int pct);
+
+// Compile-time HW variant string, equal to the CI release-asset key
+// (e.g. "co5300-cst816d", "ili9341-xpt2046", bare "ssd1322"). Defined in the
+// public build via add_compile_definitions(FW_VARIANT=...) in CMakeLists.txt;
+// the private updater lib requests exactly this variant's .bin so it never
+// flashes a foreign-variant image. Implemented in updater.c (public).
+const char *app_fw_variant(void);
+
+// Kick off the boot background check. Non-blocking: spawns its own task, must
+// not touch LVGL — results reach the UI via the registered notify cb. The check
+// runs in two steps: firmware version against the server first; then, only when
+// the firmware is current (or the server is unreachable — the second step is
+// local), the web-UI staleness comparison. Both per-build values arrive as
+// arguments (fw_variant from app_fw_variant(), www_expected = WEB_ASSETS_VERSION
+// from components/web/web_assets_version.h) — the prebuilt cannot bake per-build
+// macros and takes no back-reference to public code, so it links without any
+// --whole-archive. Implemented in the prebuilt lib.
+void updater_start(const char *fw_variant, const char *www_expected);
+
+// Register the "update available / web UI stale" notification (see
+// updater_notify_cb_t). Call once at UI init, before updater_start().
+// Implemented in the prebuilt lib.
+void updater_set_notify_cb(updater_notify_cb_t cb);
+
+// Register the download-progress callback (see updater_progress_cb_t). Call once
+// at UI init. Implemented in the prebuilt lib.
+void updater_set_progress_cb(updater_progress_cb_t cb);
+
+// Latest release tag reported by the last successful check ("" until then).
+// For SCREEN_UPDATE to display. Implemented in the prebuilt lib.
+const char *updater_latest_version(void);
+
+// True if the last check found a strictly newer version. Implemented in the
+// prebuilt lib.
+bool updater_update_available(void);
+
+// Download + flash the confirmed newer version (called from SCREEN_UPDATE on user
+// confirm, after the caller navigated to SCREEN_OTA and stopped audio). Spawns an
+// OTA task that pulls the app-only .bin over HTTPS via the atlascube.net proxy and
+// reboots on success; progress arrives via the registered progress cb. Implemented
+// in the prebuilt lib.
+void updater_apply(void);
+
+// Live web-UI staleness comparison: reads /spiffs/www_version.txt and compares
+// hash tokens (up to the first whitespace) against `expected`; an app-only update
+// never rewrites the www partition, so the two drift apart. Returns false when
+// `expected` is "unknown" (build without a generated stamp). `ver_out` (optional,
+// may be NULL) receives the on-partition stamp for display. Used by the boot
+// check and by /api/state (live read — a fresh /setup re-upload clears the flag
+// without a reboot). Implemented in the prebuilt lib.
+bool updater_www_stale(const char *expected, char *ver_out, size_t ver_sz);
+
+// True if the boot check found stale web-UI files while the firmware was current
+// (cached; for SCREEN_UPDATE to pick the prompt mode). Implemented in the
+// prebuilt lib.
+bool updater_www_outdated(void);
+
+// Remote-triggered ("forced") update — POST /api/update from the phone app. No
+// on-screen prompt: the POST is the user's confirmation, so this also ignores
+// settings.update.enable (which only gates the prompt). Re-runs the version
+// check first — on a long-running device the boot-check result may predate the
+// release the app already sees on GitHub — then applies what it finds. `prep`
+// fires from the updater task once the mode is decided, BEFORE any download
+// starts: the HTTP handler uses it to stop audio / bring up SCREEN_OTA and to
+// unblock its response. Must be cheap and thread-safe. Returns false when a
+// forced check is already in flight (caller answers "busy") or the task cannot
+// spawn. Implemented in the prebuilt lib.
+typedef enum {
+    UPDATER_FORCE_NONE = 0,   // nothing newer found, or the check failed
+    UPDATER_FORCE_FW,         // newer firmware → pull-OTA + reboot follows
+    UPDATER_FORCE_WWW,        // firmware current, web UI stale → in-place pull
+} updater_force_mode_t;
+
+typedef void (*updater_force_prep_cb_t)(updater_force_mode_t mode);
+
+bool updater_force(updater_force_prep_cb_t prep);
+
+// Refresh the stale web UI in place (called from SCREEN_UPDATE on user confirm,
+// after the caller stopped audio — sustained HTTPS needs the internal-RAM
+// headroom). Spawns a task that pulls the LATEST release's built web set via the
+// atlascube.net proxy — the pull only runs when the firmware is already current,
+// so "latest" is by construction the matching set, and the manifest-stamp guard
+// aborts otherwise (files land on /spiffs byte-for-byte, www_version.txt written
+// last so an interrupted pull stays flagged stale and can be retried). No
+// reboot: httpd serves the fresh files immediately.
+// Progress arrives via the registered progress cb (0..99 download, 100 done,
+// -1 failed). Implemented in the prebuilt lib.
+void updater_www_apply(void);
+
+#ifdef __cplusplus
+}
+#endif

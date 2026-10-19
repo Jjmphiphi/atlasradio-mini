@@ -1,0 +1,52 @@
+#pragma once
+
+#include "lvgl.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    UI_ALIGN_LEFT,    // x = left edge of the text (like plain lv_obj_set_pos)
+    UI_ALIGN_CENTER,  // x = horizontal middle of the text
+    UI_ALIGN_RIGHT,   // x = right edge of the text
+} ui_label_align_t;
+
+// Auto-width label whose horizontal anchor point (per `align`) stays nailed to
+// (x, y) regardless of text width; `y` is the top edge.
+//
+// Use instead of `lv_label_create` + `lv_obj_set_pos` for labels whose text
+// changes (clock digits, station/title, IP, ...). The chosen anchor — and thus
+// the layout-editor coordinate — stays put as the string width varies, instead
+// of the label wandering from its top-left corner.
+//
+// Returns the label — set its font, color and text as usual.
+lv_obj_t *ui_anchored_label(lv_obj_t *parent, int x, int y, ui_label_align_t align);
+
+// Semi-transparent, theme-coloured rounded plate behind a floating label (or any
+// object) so its text stays readable over a wallpaper. `opa_pct` is the owning
+// screen's ui_profile value (0..100). No-op — and adds no padding, so the
+// object's geometry is unchanged — at 0. Idempotent: call again from a widget's
+// apply_theme() to refresh the plate colour on a theme change.
+void ui_label_scrim(lv_obj_t *obj, int opa_pct);
+
+// Set a label's text, hiding the whole label when the text is empty — so a
+// scrim plate is never left showing behind nothing. Use for fields that go
+// blank (track title, playback time, audio info) instead of lv_label_set_text.
+// Re-setting the same string is a no-op, so a periodic refresh does not restart
+// a scrolling label's animation.
+void ui_label_set_text(lv_obj_t *lbl, const char *txt);
+
+// Same, for a single-line label that must stay inside a `box_w`-wide box: the
+// label hugs its text, capped at the box width. Pair with a label created as
+//
+//     lbl = ui_anchored_label(parent, box_x + box_w / 2, y, UI_ALIGN_CENTER);
+//     lv_label_set_long_mode(lbl, LV_LABEL_LONG_SCROLL_CIRCULAR);
+//
+// so text that fits sits still and only overlong text scrolls — instead of
+// wrapping into a second line.
+void ui_label_set_text_boxed(lv_obj_t *lbl, const char *txt, int box_w);
+
+#ifdef __cplusplus
+}
+#endif

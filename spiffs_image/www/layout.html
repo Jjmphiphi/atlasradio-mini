@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AtlasCube – Layout Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .layout-wrap {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 0 14px;
+        }
+        .layout-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 320px;
+            gap: 16px;
+            align-items: start;
+        }
+        @media (max-width: 800px) {
+            .layout-grid { grid-template-columns: 1fr; }
+        }
+        .canvas-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px;
+        }
+        .canvas-card h3 {
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+            font-weight: 500;
+            letter-spacing: .04em;
+            text-transform: uppercase;
+        }
+        .lcd-frame {
+            background: #000;
+            border: 4px solid #2a2a32;
+            border-radius: 6px;
+            padding: 0;
+            display: inline-block;
+            box-shadow: 0 0 0 1px #444 inset, 0 6px 24px rgba(0,0,0,.6);
+            max-width: 100%;
+        }
+        svg.lcd { display: block; max-width: 100%; height: auto; }
+        .form-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 0;
+            position: sticky;
+            top: 12px;
+            max-height: calc(100vh - 24px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .form-section {
+            padding: 14px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+        .form-section h4 {
+            font-size: 11px;
+            color: var(--text-dim);
+            margin-bottom: 10px;
+            font-weight: 600;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+        /* Non-collapsible category separator between top-level groups. */
+        .form-category {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 12px 2px 6px;
+            color: var(--text-dim);
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+        }
+        .form-category::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+        .form-category:first-child { margin-top: 0; }
+        .form-group {
+            background: color-mix(in srgb, var(--bg-panel) 48%, transparent);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 7px;
+            overflow: hidden;
+        }
+        .form-group:last-child { margin-bottom: 0; }
+        .form-group > summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 10px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+            transition: background .15s, color .15s;
+        }
+        .form-group > summary::-webkit-details-marker { display: none; }
+        .form-group > summary::before {
+            content: '›';
+            color: var(--accent);
+            font-size: 18px;
+            line-height: 12px;
+            transform: rotate(0deg);
+            transition: transform .15s;
+        }
+        .form-group[open] > summary::before { transform: rotate(90deg); }
+        .form-group > summary:hover { background: var(--bg-input); }
+        .form-group[open] > summary {
+            border-bottom: 1px solid var(--border);
+            color: var(--accent);
+        }
+        .form-group-title {
+            flex: 1;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: .02em;
+        }
+        .form-group-meta {
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .form-group.is-disabled .form-group-meta { color: var(--text-dim); opacity: .65; }
+        .form-group-body { padding: 9px 10px 5px; }
+        .form-subgroup {
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            overflow: hidden;
+        }
+        .form-subgroup > summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 8px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+        }
+        .form-subgroup > summary::-webkit-details-marker { display: none; }
+        .form-subgroup > summary::before {
+            content: '›';
+            color: var(--accent);
+            font-size: 16px;
+            line-height: 10px;
+            transition: transform .15s;
+        }
+        .form-subgroup[open] > summary::before { transform: rotate(90deg); }
+        .form-subgroup[open] > summary { border-bottom: 1px solid var(--border); }
+        .form-subgroup-body { padding: 8px 8px 2px; }
+        .form-subgroup.is-disabled .form-group-meta { opacity: .65; }
+        .form-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            gap: 8px;
+        }
+        /* refreshGroup() hides the controls of a switched-off group with the
+           `hidden` attribute. The browser's own [hidden] rule carries no
+           !important, so the display above would win — these say it explicitly. */
+        .form-row[hidden], .form-subgroup[hidden] { display: none; }
+        .form-row label {
+            font-size: 12px;
+            color: var(--text);
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .form-row input[type="number"] {
+            width: 70px;
+            padding: 4px 6px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            text-align: right;
+        }
+        .form-row input[type="text"] {
+            width: 150px;
+            padding: 4px 6px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        .form-row input:focus { border-color: var(--accent); outline: none; }
+        .form-row select {
+            width: 150px;
+            padding: 4px 6px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+        }
+        /* Rows that carry a path field PLUS its pickers (📂 SD + 🌐 asset) do not
+           fit the 320 px form column on one line — label 1fr + 150 px field +
+           two controls overflows, and the last control gets clipped. Give the
+           label the first line to itself and let the field share the second with
+           the pickers, which also stops the label being ellipsised. */
+        .form-row-picker { flex-wrap: wrap; }
+        .form-row-picker label { flex: 1 0 100%; overflow: visible; white-space: normal; }
+        .form-row-picker input[type="text"] { flex: 1 1 auto; width: auto; min-width: 110px; }
+        .form-row input[type="checkbox"] {
+            width: 16px; height: 16px;
+            accent-color: var(--accent);
+        }
+        .actions {
+            display: flex;
+            gap: 8px;
+            padding: 12px 14px 8px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-card);
+            box-shadow: 0 -8px 20px rgba(0,0,0,.16);
+        }
+        .actions button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-family: 'Chakra Petch', sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: filter .15s;
+        }
+        .actions button:hover:not(:disabled) { filter: brightness(1.15); }
+        /* Standalone button look (used outside the action bar, e.g. Assets).
+           Inside `.actions`, the higher-specificity `.actions button` rule wins
+           and restores the full-width bar sizing — so this is safe there too. */
+        .btn-apply {
+            background: var(--accent);
+            color: #001019;
+            padding: 8px 14px;
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-sm);
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: filter .15s;
+        }
+        .btn-apply:hover { filter: brightness(1.12); }
+        .btn-reset { background: var(--bg-panel); color: var(--text); border: 1px solid var(--border) !important; }
+        #status_msg {
+            font-size: 11px;
+            color: var(--text-dim);
+            padding: 0 14px 10px;
+            min-height: 14px;
+            text-align: center;
+        }
+        @media (max-width: 800px) {
+            .form-card {
+                position: static;
+                max-height: none;
+                overflow: visible;
+            }
+            .form-section { overflow: visible; }
+        }
+        /* SVG element styles */
+        .lcd-bg { fill: #1a1a2e; }
+        .panel { fill: rgba(60, 80, 120, 0.35); stroke: #5a7adc; stroke-width: 1; cursor: move; }
+        .panel.dragging { fill: rgba(80, 110, 170, 0.55); }
+        .label-rect { fill: rgba(140, 160, 220, 0.45); stroke: #8aa0dc; stroke-width: 0.5; cursor: move; }
+        .label-rect.dragging { fill: rgba(180, 200, 255, 0.75); }
+        /* Centering span for the weather widget — the device draws no background
+           here; the visible plate is the content-sized pill drawn inside it.
+           The span itself is click-through so a full-width one cannot steal
+           pointers from widgets underneath; .label-frame-grip is its drag edge. */
+        .label-frame { fill: rgba(140, 160, 220, 0.08); stroke: #8aa0dc; stroke-width: 0.5; stroke-dasharray: 3 2; pointer-events: none; }
+        .label-frame-grip { fill: none; stroke: transparent; stroke-width: 6; pointer-events: stroke; cursor: move; }
+        /* Semantic placeholder palette — the same role keeps the same colour on
+           every screen, so overlapping widgets remain distinguishable. */
+        .label-rect.ph-time       { fill: rgba(34, 211, 238, .30); stroke: #22d3ee; }
+        .label-rect.ph-date       { fill: rgba(59, 130, 246, .30); stroke: #60a5fa; }
+        .label-rect.ph-media-primary   { fill: rgba(168, 85, 247, .30); stroke: #c084fc; }
+        .label-rect.ph-media-secondary { fill: rgba(236, 72, 153, .28); stroke: #f472b6; }
+        .label-rect.ph-info       { fill: rgba(245, 158, 11, .28); stroke: #fbbf24; }
+        .label-rect.ph-mode       { fill: rgba(249, 115, 22, .36); stroke: #fb923c; }
+        .label-rect.ph-event      { fill: rgba(239, 68, 68, .36); stroke: #f87171; }
+        .label-rect.ph-calendar   { fill: rgba(234, 179, 8, .32); stroke: #fde047; }
+        .label-rect.ph-weather    { fill: rgba(20, 184, 166, .32); stroke: #2dd4bf; }
+        .label-frame.ph-weather   { fill: rgba(20, 184, 166, .08); stroke: #2dd4bf; }
+        .label-rect.ph-vu         { fill: rgba(34, 197, 94, .28); stroke: #4ade80; }
+        .label-rect.ph-progress   { fill: rgba(250, 204, 21, .35); stroke: #facc15; }
+        .label-rect.ph-hotspot    { fill: rgba(255, 255, 255, .22); stroke: #fff; stroke-width: 1; stroke-dasharray: 3 2; }
+        .indicator-rect { fill: rgba(220, 100, 100, 0.55); stroke: #e94560; stroke-width: 0.5; pointer-events: none; }
+        .corner-handle {
+            fill: #f4a738;
+            stroke: #1a1a2e;
+            stroke-width: 0.5;
+        }
+        .corner-handle[data-corner="tl"], .corner-handle[data-corner="br"] { cursor: nwse-resize; }
+        .corner-handle[data-corner="tr"], .corner-handle[data-corner="bl"] { cursor: nesw-resize; }
+
+        .section-tabs {
+            display: flex;
+            flex-direction: column;
+            gap: 12px 22px;
+            margin-bottom: 12px;
+        }
+        .section-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .section-group-label {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            opacity: .65;
+        }
+        .section-group-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .section-tab {
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-dim);
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .15s;
+        }
+        .section-tab:hover { color: var(--text); }
+        .asset-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .asset-row label { font-size: 12px; color: var(--text-dim); }
+        .asset-row input[type="number"],
+        .asset-row input[type="text"] {
+            padding: 6px 8px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+        .asset-row input[type="number"] { width: 72px; }
+        .asset-row input:focus { border-color: var(--accent); outline: none; }
+        .asset-row input[type="file"] {
+            flex: 1;
+            min-width: 0;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .section-tab.active {
+            background: var(--accent);
+            color: #001019;
+            border-color: var(--accent);
+        }
+        .indicator-rect.bt-circle {
+            fill: rgba(0, 130, 252, 0.4);
+            stroke: #0082FC;
+            stroke-width: 1;
+            pointer-events: auto;
+            cursor: move;
+        }
+        .lcd-text {
+            fill: #e8e8ec;
+            font-family: 'JetBrains Mono', monospace;
+            pointer-events: none;
+            user-select: none;
+        }
+        .field-tag {
+            font-size: 6px;
+            fill: #aac0ff;
+            pointer-events: none;
+            user-select: none;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .online-wallpaper-gallery {
+            margin-top: 8px;
+            padding: 9px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-input);
+        }
+        .online-wallpaper-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+            color: var(--text-dim);
+            font-size: 11px;
+        }
+        .online-wallpaper-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+            gap: 8px;
+        }
+        .online-wallpaper-card {
+            min-width: 0;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-panel);
+        }
+        .online-wallpaper-card img {
+            display: block;
+            width: 100%;
+            aspect-ratio: var(--online-wallpaper-ratio, 4 / 3);
+            object-fit: cover;
+            background: #050508;
+        }
+        .online-wallpaper-body { padding: 7px; }
+        .online-wallpaper-title {
+            overflow: hidden;
+            color: var(--text);
+            font-size: 11px;
+            font-weight: 600;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .online-wallpaper-meta {
+            min-height: 14px;
+            margin-top: 2px;
+            color: var(--text-dim);
+            font-size: 9px;
+        }
+        .online-wallpaper-actions {
+            display: flex;
+            gap: 5px;
+            margin-top: 6px;
+        }
+        .online-wallpaper-actions a,
+        .online-wallpaper-actions button {
+            flex: 1;
+            min-width: 0;
+            padding: 5px 6px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-input);
+            color: var(--text-dim);
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 10px;
+            text-align: center;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .online-wallpaper-actions button {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .online-wallpaper-actions button:hover:not(:disabled) {
+            background: var(--accent);
+            color: #001019;
+        }
+        .online-wallpaper-actions button:disabled { opacity: .55; cursor: wait; }
+        .online-wallpaper-message {
+            padding: 12px 8px;
+            color: var(--text-dim);
+            font-size: 11px;
+            line-height: 1.5;
+            text-align: center;
+        }
+        /* A theme card is one full-width row: every screen of the set side by
+           side, so the artwork reads as a family before anything is installed. */
+        .theme-card { margin-bottom: 8px; }
+        .theme-card:last-of-type { margin-bottom: 0; }
+        .theme-strip {
+            display: flex;
+            gap: 6px;
+            padding: 7px 7px 0;
+            overflow-x: auto;
+        }
+        .theme-strip figure {
+            flex: 0 0 96px;
+            min-width: 0;
+            margin: 0;
+        }
+        .theme-strip img {
+            display: block;
+            width: 100%;
+            aspect-ratio: var(--online-wallpaper-ratio, 4 / 3);
+            object-fit: cover;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: #050508;
+        }
+        .theme-strip figcaption {
+            overflow: hidden;
+            margin-top: 3px;
+            color: var(--text-dim);
+            font-size: 9px;
+            text-align: center;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .theme-card .online-wallpaper-actions button { flex: 0 0 auto; padding: 5px 12px; }
+        .online-asset-gallery .online-wallpaper-card img {
+            object-fit: contain;
+            padding: 10px;
+            background-color: #09090c;
+            background-image:
+                linear-gradient(45deg, #18181d 25%, transparent 25%),
+                linear-gradient(-45deg, #18181d 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #18181d 75%),
+                linear-gradient(-45deg, transparent 75%, #18181d 75%);
+            background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+            background-size: 12px 12px;
+        }
+        /* Shown next to every internet-slot control while auto refresh is off:
+           a slot filled by hand is gone after the next reboot. */
+        .net-wp-manual-hint {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 6px;
+            padding: 7px 9px;
+            border: 1px solid var(--orange);
+            border-radius: var(--radius-sm);
+            background: rgba(255,170,0,.10);
+            color: var(--orange);
+            font-size: 11px;
+            line-height: 1.45;
+        }
+        .net-wp-manual-hint span { flex: 1; min-width: 200px; }
+        .net-wp-manual-hint button {
+            padding: 4px 9px;
+            border: 1px solid var(--orange);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--orange);
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .net-wp-manual-hint button:hover:not(:disabled) {
+            background: var(--orange);
+            color: #001019;
+        }
+        .net-wp-manual-hint button:disabled { opacity: .55; cursor: wait; }
+    </style>
+</head>
+<body>
+
+<header class="app-header">
+    <div class="logo">
+        <span class="logo-icon">◈</span>
+        <div class="logo-stack">
+            <span class="logo-text">ATLAS <span class="logo-accent">CUBE</span></span>
+            <a class="logo-link" href="https://atlascube.net/" target="_blank" rel="noopener">atlascube.net</a>
+        </div>
+    </div>
+</header>
+
+<main class="layout-wrap">
+    <a href="/settings.html" class="back-link">← Back to Settings</a>
+
+    <div class="section-title" style="margin: 16px 0 12px">🖼️ Layout Editor</div>
+
+    <div class="www-outdated-warn" style="font-size:12px">
+        ⚠️ After a firmware update the built-in layout may have changed. If widgets look
+        misaligned or overlap, use <b>Reset all</b> to restore this version's defaults
+        (this discards your custom positions).
+    </div>
+
+    <div class="section-tabs">
+        <div class="section-group">
+            <span class="section-group-label">Screens</span>
+            <div class="section-group-tabs">
+                <!-- Each screen is followed by the list screen it opens. -->
+                <button class="section-tab active" data-section="clock"    onclick="selectSection('clock')">🏠 Home</button>
+                <button class="section-tab"        data-section="sd"       onclick="selectSection('sd')">💾 SD Player</button>
+                <button class="section-tab"        data-section="browser"  onclick="selectSection('browser')">📁 SD Browser</button>
+                <button class="section-tab"        data-section="radio"    onclick="selectSection('radio')">📻 Radio</button>
+                <button class="section-tab"        data-section="playlist" onclick="selectSection('playlist')">📝 Playlist</button>
+                <button class="section-tab"        data-section="bt"       onclick="selectSection('bt')">🔵 Bluetooth</button>
+                <button class="section-tab"        data-section="eq"       onclick="selectSection('eq')">🎚 Equalizer</button>
+            </div>
+        </div>
+        <div class="section-group">
+            <span class="section-group-label">Tools</span>
+            <div class="section-group-tabs">
+                <button class="section-tab" data-section="themes" onclick="selectSection('themes')">🎭 Themes</button>
+                <button class="section-tab" data-section="internet" onclick="selectSection('internet')">🌍 Internet</button>
+                <button class="section-tab" data-section="general" onclick="selectSection('general')">🎨 General</button>
+                <button class="section-tab" data-section="assets" onclick="selectSection('assets')">📦 Assets</button>
+                <button class="section-tab" data-section="presets" onclick="selectSection('presets')">🧹 Presets</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="layout-grid">
+
+        <!-- ── SVG canvas ── -->
+        <div class="canvas-card">
+            <h3>Live preview <span id="screen_dim" style="float:right">—</span></h3>
+            <div class="lcd-frame">
+                <svg id="lcd" class="lcd" preserveAspectRatio="xMidYMid meet"></svg>
+            </div>
+            <p style="color:var(--text-dim);font-size:11px;margin-top:8px">
+                Drag rectangle body to move. Drag orange corner handles to resize. Labels with only x/y (no size) follow font metrics.
+            </p>
+        </div>
+
+        <!-- ── Form ── -->
+        <div class="form-card">
+            <div class="form-section" id="form_section">
+                <h4 id="form_section_title">Home</h4>
+                <!-- programmatically populated -->
+            </div>
+
+            <div class="actions">
+                <button class="btn-reset" onclick="resetProfile()">Reset all</button>
+                <button class="btn-apply" id="btn_apply" onclick="applyProfile()">Apply</button>
+            </div>
+            <div id="status_msg"></div>
+        </div>
+
+    </div>
+
+    <!-- ── Presets tab: layout-preset housekeeping (shown instead of the grid) ── -->
+    <div class="panel" id="presets_card" style="display:none">
+        <label class="field-label">Layout presets</label>
+        <div class="field-hint">Per-wallpaper layout presets mirror the wallpaper's own place on
+            the SD card: <code>/wallpapers/&lt;res&gt;/&lt;category&gt;/name.bin</code> →
+            <code>/wallpapers/layouts/&lt;res&gt;/&lt;category&gt;/name.json</code>
+            (saved with the preset buttons under the live preview). The check scans both that
+            layout and the older flat one, and finds missing wallpapers, invalid JSON and
+            resolution stamps that do not match their directory.</div>
+        <button class="btn-secondary" onclick="checkOrphanPresets()">🧹 Check presets</button>
+        <div id="presetOrphanStatus" class="field-hint" style="margin-top:6px"></div>
+        <div id="presetOrphanList" style="margin-top:4px"></div>
+    </div>
+
+    <!-- ── Themes tab: whole sets from atlascube.net, all screens at once ── -->
+    <div id="themes_card" style="display:none">
+        <!-- Installing files the theme on the card, so coming back to it later
+             is a local operation — this panel is the offline half of the tab. -->
+        <div class="panel">
+            <label class="field-label">Installed on this card</label>
+            <div class="field-hint">Every theme you install is filed on the SD card together with the
+                layouts it applied, so switching back to one needs no internet at all. Applying
+                rewrites the layout of every screen that theme covers; <b>Forget</b> drops only the
+                entry, never the artwork.</div>
+            <div id="local_theme_list" style="margin-top:10px"></div>
+            <div id="local_theme_status" class="field-hint" style="margin-top:8px"></div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Themes</label>
+            <div class="field-hint">A theme is one published set: a wallpaper for every screen, the
+                layout drawn against each of them, and the knob artwork it was drawn with. Installing
+                converts the wallpapers to this panel's <code>.bin</code> on the SD card, files each
+                layout as that wallpaper's preset, and applies all of it — so it needs a card.
+                The knob lands on the card too, with its transparency intact, so it survives a reboot
+                with nothing to re-download; screens whose layout leaves the knob unset keep the
+                plain themed one.</div>
+            <div id="layout_theme_gallery" class="online-wallpaper-gallery" style="margin-top:10px"></div>
+        </div>
+    </div>
+
+    <!-- ── General tab: the gradient/solid look for General screens ── -->
+    <div id="general_card" style="display:none">
+        <div class="panel">
+            <label class="field-label">General background</label>
+            <div class="field-hint">The standard background for screens set to <b>General</b>. When an
+                internet wallpaper is fetched (Internet tab), it replaces this on every General/Internet
+                screen; screens set to a specific SD file keep it.</div>
+            <div class="theme-toggle wide" style="width:fit-content;margin-top:8px">
+                <button class="theme-btn" id="layoutBgGrad"  onclick="setGeneralBackground('gradient')">🌈 Gradient</button>
+                <button class="theme-btn" id="layoutBgSolid" onclick="setGeneralBackground('solid')">⬛ Solid</button>
+            </div>
+            <div class="field-hint" style="margin-top:10px">
+                🎨 <a href="/settings.html#tab=display&sub=theme">Edit gradient / solid colours in Settings ▸ Theme ▸</a>
+            </div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+            <label class="field-label">Wallpaper brightness</label>
+            <div class="slider-row" style="margin-top:6px">
+                <span class="slider-label">🌒 Brightness</span>
+                <span id="wp_dim_value" class="slider-value">100%</span>
+            </div>
+            <!-- UI shows brightness (right = brighter, like the panel Brightness
+                 slider); the firmware setting is the inverse (wallpaper_dim). -->
+            <input type="range" min="20" max="100" step="5" value="100" id="wp_dim_slider"
+                   oninput="document.getElementById('wp_dim_value').textContent = this.value + '%'"
+                   onchange="setWallpaperDim(100 - this.value)" />
+            <div class="field-hint">Applies to every wallpaper — per-screen SD files and the
+                fetched internet one. Lower it to darken the image so on-screen text stays
+                readable; gradient/solid backgrounds are not affected. 100% = original image.</div>
+        </div>
+
+        <div class="panel" style="margin-top:12px">
+            <label class="field-label">Upload wallpaper (no assign)</label>
+            <div class="field-hint">Convert a PNG/JPG to an LVGL RGB565 <code>.bin</code> scaled to the
+                current panel resolution and store it under
+                <code>/wallpapers/&lt;width&gt;x&lt;height&gt;</code> on the SD card —
+                <b>without</b> changing what any screen shows. Assign it later per screen with the 🗂 picker
+                under the live preview.</div>
+            <div class="asset-row" style="margin-top:10px">
+                <input type="file" id="general_wp_file" accept="image/png,image/jpeg,image/webp" hidden
+                       onchange="generalWallpaperFilePicked()" />
+                <button class="btn-secondary" onclick="document.getElementById('general_wp_file').click()">📁 Choose image…</button>
+                <span id="general_wp_file_name" class="field-hint" style="flex:1;margin-top:0">No file selected</span>
+            </div>
+            <div class="asset-row" style="margin-top:8px">
+                <button class="btn-apply" onclick="uploadGeneralWallpaper()">⬆ Upload</button>
+            </div>
+            <div id="general_wp_status" class="field-hint" style="margin-top:8px"></div>
+        </div>
+    </div>
+
+    <!-- ── Assets tab: internet asset slots (RAM) + upload to the SD card ── -->
+    <div id="assets_card" style="display:none">
+        <!-- Internet assets: the device downloads the PNG itself, so this path
+             needs no SD card and keeps the alpha channel. -->
+        <div class="panel">
+            <label class="field-label">Internet assets</label>
+            <div class="field-hint">The device downloads these PNGs itself and keeps them in RAM, so
+                no SD card is involved and <b>transparency is preserved</b>. Point a widget's
+                <b>Knob image</b> at <code>asset0</code>…<code>asset3</code> instead of a file path.
+                They are fetched in the same batch as the internet wallpapers and follow the
+                <b>Auto refresh</b> setting on the Internet tab — with it Off, use Fetch now.
+                Artwork is limited to 128×128 px of source image.</div>
+            <div id="net_asset_rows" style="margin-top:10px"></div>
+            <div class="asset-row" style="margin-top:8px">
+                <button class="btn-apply" onclick="saveNetAssets()">💾 Save slots</button>
+                <button class="btn-secondary" onclick="fetchNetAssets()">🌍 Fetch now</button>
+                <span id="net_asset_status" style="margin-left:8px;opacity:.7"></span>
+            </div>
+        </div>
+
+        <div class="panel">
+            <label class="field-label">Upload image asset</label>
+            <div class="field-hint">Convert a PNG/JPG to an LVGL <code>.bin</code> and store it on the
+                SD card, then point a widget at it (e.g. a volume-slider <b>Knob image</b>). The image is
+                scaled to the size selected during upload — for a knob, that is its on-screen size.
+                <b>PNG transparency is preserved</b> (the file becomes <code>RGB565A8</code>); a JPEG or a
+                fully opaque PNG stays the smaller <code>RGB565</code>. Unlike an asset slot this lives on
+                the card, so it survives a reboot with nothing to re-download.</div>
+
+            <div class="asset-row" style="margin-top:10px">
+                <label>Folder</label>
+                <input type="text" id="asset_dir" value="/assets/knobs" style="flex:1" />
+            </div>
+            <div class="asset-row" style="margin-top:8px">
+                <input type="file" id="asset_file" accept="image/png,image/jpeg,image/webp" hidden
+                       onchange="assetFilePicked()" />
+                <button class="btn-secondary" onclick="document.getElementById('asset_file').click()">📁 Choose image…</button>
+                <span id="asset_file_name" class="field-hint" style="flex:1;margin-top:0">No file selected</span>
+            </div>
+            <div class="asset-row" style="margin-top:8px">
+                <button class="btn-apply" onclick="uploadAsset()">⬆ Upload</button>
+                <button id="asset_btn_online" class="btn-secondary"
+                        style="color:#ff6b6f;border-color:#e5484d"
+                        onclick="toggleOnlineAssetGallery()">🌐 Online gallery</button>
+                <button class="btn-secondary" onclick="browseAssets()">🔄 Refresh list</button>
+            </div>
+            <div id="asset_status" class="field-hint" style="margin-top:8px"></div>
+            <div id="online_asset_gallery"
+                 class="online-wallpaper-gallery online-asset-gallery" hidden></div>
+            <div id="asset_list" style="margin-top:8px"></div>
+        </div>
+    </div>
+
+    <!-- ── Internet tab: the internet-fetched wallpaper ── -->
+    <div id="internet_card" style="display:none">
+        <div class="panel">
+            <label class="field-label">Internet wallpaper</label>
+            <div class="field-hint">The device downloads a photo straight from the selected service
+                (on that service's own terms) and uses it as the screen background, kept in RAM
+                until reboot. A playing radio stream pauses during the download. NASA APOD API
+                links are resolved automatically (DEMO_KEY is rate-limited — a free personal key
+                from api.nasa.gov lifts that).</div>
+            <!-- Slots: ten independent internet wallpapers held in RAM, so screens
+                 can each show a different one. Everything below edits the slot
+                 selected here. -->
+            <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <label class="field-label" style="font-size:12px;margin:0">Slot</label>
+                <select id="netWpSlot" class="field-input" style="width:auto"
+                        onchange="netWpSlotChanged()"></select>
+                <button class="btn-secondary" onclick="fetchAllNetWallpapers()">🔄 Refresh all slots</button>
+                <button class="btn-secondary" onclick="clearNetWpSlot()">🗑 Clear slot</button>
+            </div>
+            <div class="field-hint">Each filled slot costs one screen-sized image in RAM and is
+                re-downloaded after every reboot. Assign a slot to a screen in that screen's
+                <strong>Background</strong> source.</div>
+            <!-- Filled by updateNetWpAutoHints() — visible only while Auto refresh is Off. -->
+            <div id="netWpManualHintHost" hidden></div>
+            <select id="netWpPreset" class="field-input" style="width:100%;margin-top:6px"
+                    onchange="netWpPresetChanged()">
+                <option value="https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY">NASA — Astronomy Picture of the Day</option>
+                <option value="https://picsum.photos/{w}/{h}">Lorem Picsum — random photo</option>
+                <option value="https://loremflickr.com/{w}/{h}">LoremFlickr — random photo</option>
+                <option value="https://loremflickr.com/{w}/{h}/cosmos">LoremFlickr — keyword (edit URL)</option>
+                <option value="https://cataas.com/cat?width={w}&amp;height={h}">Cataas — random cat</option>
+                <option value="https://placedog.net/{w}/{h}">PlaceDog — random dog</option>
+                <option value="">Custom URL…</option>
+            </select>
+            <input type="text" id="netWpUrl" class="field-input" style="width:100%;margin-top:6px"
+                   value="https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY"
+                   oninput="syncNetWpPreset()" />
+            <div id="netWpResolved" class="field-hint" style="font-family:monospace;overflow-wrap:anywhere"></div>
+            <div style="margin-top:8px">
+                <button class="btn-secondary" onclick="fetchNetWallpaper()">🌍 Fetch now</button>
+                <button class="btn-secondary" onclick="saveNetWallpaper()">💾 Save to SD</button>
+                <span id="netWpStatus" style="margin-left:8px;opacity:.7"></span>
+            </div>
+            <!-- Thumbnail of the wallpaper currently fetched on the device
+                 (served as an LVGL .bin by /api/wallpaper/image); hidden until
+                 one exists. Refreshed on tab open and after a fetch. -->
+            <img id="netWpPreviewImg" alt="Fetched wallpaper"
+                 style="display:none;margin-top:10px;max-width:100%;max-height:240px;
+                        border:1px solid rgba(128,128,128,.35);border-radius:6px" />
+            <div style="margin-top:10px">
+                <label class="field-label" style="font-size:12px">Auto refresh</label>
+                <div style="margin-top:4px">
+                    <select id="netWpMode" class="field-input" style="width:auto"
+                            onchange="saveNetWpSchedule()">
+                        <option value="0">Off (manual only)</option>
+                        <option value="1">Once after boot</option>
+                        <option value="2">After boot + daily at:</option>
+                    </select>
+                    <input type="time" id="netWpTime" class="field-input"
+                           style="width:120px;display:none" value="04:00"
+                           onchange="saveNetWpSchedule()" />
+                </div>
+                <div class="field-hint">Uses the URL above (saved together with the schedule).
+                    The wallpaper lives in RAM only, so both auto modes re-fetch it ~30 s after
+                    every boot. A playing radio stream is paused for the few seconds of the download.</div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script src="sdbrowse.js"></script>
+<script src="layout.js"></script>
+</body>
+</html>

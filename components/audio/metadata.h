@@ -1,0 +1,44 @@
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+// Local-file audio metadata for the SD music player: "now playing" title (from
+// the ID3v2 tag) and track length.
+//
+// Minimal ID3v2 tag reader for the SD music player's "now playing" title.
+//
+// Reads the TIT2 (title) and TPE1 (artist) text frames from an MP3's ID3v2
+// tag and formats them into `out` as "Artist - Title" (or just "Title" when no
+// artist frame is present). Only the frame headers are read in full; frame
+// bodies are seeked over unless needed, so a large embedded cover (APIC) does
+// not get loaded.
+//
+// Supports ID3v2.3 (plain 32-bit frame sizes) and v2.4 (syncsafe sizes), text
+// encodings 0 (ISO-8859-1), 1/2 (UTF-16) and 3 (UTF-8). Returns true when at
+// least a title was found and written to `out`; false for non-MP3 files, a
+// missing/unsupported tag, or any read error — the caller then falls back to
+// the file name.
+bool id3_read_title(const char *path, char *out, size_t out_size);
+
+// Locate the cover art embedded in an MP3's ID3v2 tag: the byte offset and
+// length of the JPEG inside the APIC frame, which the caller then reads and
+// decodes. Nothing is read into memory here.
+//
+// Prefers picture type 0x03 (front cover) and falls back to the first APIC in
+// the tag. Only "image/jpeg" is reported — PNG artwork exists but the on-device
+// decoder cannot take it — and only the same tags id3_read_title() handles
+// (v2.3/v2.4, no unsynchronisation, plain frames). Returns false when the file
+// has no usable cover, which is the common case and not an error.
+bool id3_find_cover(const char *path, uint32_t *offset, uint32_t *len);
+
+// Exact play length of a local track, in milliseconds. MP3 (CBR via bitrate,
+// VBR via the Xing/Info/VBRI frame count) and WAV (PCM header) are supported;
+// other formats return 0. Reads only the file's head, so it's cheap to call at
+// track start.
+uint32_t media_duration_ms(const char *path);
+
+// Copy `src` into `dst` as UTF-8. Valid UTF-8 is passed through; anything else
+// is treated as Windows-1252 / ISO-8859-1 (Icecast StreamTitle, some CSVs).
+void meta_to_utf8(char *dst, size_t dst_sz, const char *src);

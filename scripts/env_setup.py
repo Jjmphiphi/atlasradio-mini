@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+"""
+AtlasCube toolchain setup — shared helpers, NOT a script to run.
+
+This module is imported by both scripts/build-flash.py (the end-user build/flash
+script) and ci/build.py (the CI/release builder). It locates ESP-IDF / ESP-ADF,
+clones ESP-ADF if missing, and patches ESP-ADF + ESP-IDF so a plain `idf.py build`
+works. Keeping it here (in scripts/, next to the user script) means build-flash.py
+never has to import anything from ci/.
+
+Pinned toolchain: ESP-IDF v5.5.4, ESP-ADF v2.8.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Repo root, resolved from this module's location (scripts/env_setup.py -> repo).
+# Both build-flash.py and ci/build.py use THIS constant, so ci/build.py's own
+# location doesn't matter for path resolution.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BOARD_NAME = "esp32_s3_atlascube"
+
+IDF_VERSION = "v5.5.4"
+ADF_VERSION = "v2.8"
+ADF_REPO = "https://github.com/espressif/esp-adf.git"
+TARGET = "esp32s3"
+EIM_URL = "https://github.com/espressif/idf-im-ui/releases/latest"
+
+
+# ── small helpers ─────────────────────────────────────────────────────────────
+
+def step(msg):
+    print(f"\n==> {msg}", flush=True)
+
+
+def warn(msg):
+    print(f"WARN: {msg}", file=sys.stderr, flush=True)
+
+
+def die(msg):
+    print(f"ERROR: {msg}", file=sys.stderr, flush=True)
+    sys.exit(1)
+
+
+def run(cmd, **kwargs):
+    """Run a command, echoing it; raise on non-zero exit."""
+    print("    $ " + " ".join(str(c) for c in cmd), flush=True)
+    subprocess.run(cmd, check=True, **kwargs)
+
+
+def git_ok(args):
+    """True if a git command exits 0, swallowing its output (for idempotency probes)."""
+    return subprocess.run(["git", *args],
+                          stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL).returncode == 0
+
+
+def is_link(path):
+    """True if `path` is a symlink or (Windows) a directory junction."""
+    return path.is_symlink() or getattr(os.path, "isjunction", lambda _: False)(str(path))
+
+
+def link_dir(dest, src):
+    """Make `dest` a live link to `src` (junction on Windows, symlink elsewhere).
+    Returns True on success; False lets the caller fall back to a plain copy."""
+    try:
+        if os.name == "nt":
+            # mklink is a cmd builtin, not an exe — must go through cmd /c. /J makes a
+            # directory junction, which (unlike symlinks) needs no admin rights.
+            run(["cmd", "/c", "mklink", "/J", str(dest), str(src)])
+        else:
+            os.symlink(src, dest, target_is_directory=True)
+        return True
+    except (OSError, subprocess.CalledProcessError) as e:
+        warn(f"could not link {dest} -> {src} ({e}); falling back to a copy")
+        return False
+
+
+# ── 1. environment ──────────────────────────────────────────────────────────--
+
+def resolve_idf():
+    idf = os.environ.get("IDF_PATH")
+    if not idf or not Path(idf).is_dir():
+        die("IDF_PATH is not set — run this from inside an ESP-IDF environment.\n"
+            f"       Easiest on Windows: install ESP-IDF {IDF_VERSION} with the ESP-IDF\n"
+            f"       Installation Manager ({EIM_URL}),\n"
+            "       then open the ESP-IDF terminal it creates and re-run this script.\n"
+            "       (Already have ESP-IDF? Run its export.ps1 / export.sh first.)\n"
+            "       See docs/build-windows.md for the full walkthrough.")
+    idf_py = Path(idf) / "tools" / "idf.py"
+    if not idf_py.is_file():
+        die(f"idf.py not found at {idf_py} — is IDF_PATH correct?")
+    # Soft version check: pinned to v5.5.4, but don't hard-fail on a near match.
+    ver = (Path(idf) / "version.txt")
+    if ver.is_file():
+        got = ver.read_text(encoding="utf-8", errors="ignore").strip()
+        if IDF_VERSION not in got:
+            warn(f"ESP-IDF version is '{got}', AtlasCube is pinned to {IDF_VERSION}. "
+                 "Build may fail if it differs significantly.")
+    return Path(idf), idf_py
+
+
+def resolve_idf_python():
+    """Interpreter that has idf.py's deps (click, ...). Never a random `py -3`.
+
+    `sys.executable` is whatever launched this script. On Windows that is often
+    a user install (Python 3.14) even inside an IDF shell, because `py -3` and
+    a user PATH beat the venv. idf.py then dies with `No module named 'click'`.
+    """
+    exe_name = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    candidates = []
+
+    env = os.environ.get("IDF_PYTHON_ENV_PATH")
+    if env:
+        candidates.append(Path(env) / exe_name)
+
+    tools = os.environ.get("IDF_TOOLS_PATH", r"C:\Espressif\tools" if os.name == "nt" else "")
+    if tools:
+        py_root = Path(tools) / "python"
+        if py_root.is_dir():
+            candidates.extend(sorted(py_root.glob(f"v*/venv/{exe_name}"), reverse=True))
+
+    seen = set()
+    for exe in candidates:
+        try:
+            resolved = exe.resolve()
+        except OSError:
+            continue
+        if resolved in seen or not exe.is_file():
+            continue
+        seen.add(resolved)
+        return exe
+    return Path(sys.executable)
+
+
+def relaunch_with_idf_python():
+    """Re-exec this process with IDF's venv Python when we were started with another."""
+    idf_py = resolve_idf_python()
+    try:
+        if Path(sys.executable).resolve() == idf_py.resolve():
+            return
+    except OSError:
+        return
+    print(f"Using ESP-IDF Python:\n  {idf_py}\n  (not {sys.executable})", flush=True)
+    raise SystemExit(subprocess.call([str(idf_py), *sys.argv]))
+
+
+def resolve_adf(adf_arg):
+    adf = adf_arg or os.environ.get("ADF_PATH") or str(REPO_ROOT / "esp-adf")
+    adf = Path(adf)
+    if not adf.is_dir():
+        step(f"ESP-ADF not found at {adf} — cloning {ADF_VERSION}")
+        run(["git", "clone", "--branch", ADF_VERSION, "--depth", "1", ADF_REPO, str(adf)])
+    else:
+        # Soft version check when the user supplied an existing checkout.
+        out = subprocess.run(["git", "-C", str(adf), "describe", "--tags", "--always"],
+                             capture_output=True, text=True)
+        tag = out.stdout.strip()
+        if tag and ADF_VERSION not in tag:
+            warn(f"ESP-ADF checkout reports '{tag}', AtlasCube is pinned to {ADF_VERSION}.")
+    os.environ["ADF_PATH"] = str(adf)
+    return adf
+
+
+# ── 2. patch ESP-ADF + ESP-IDF (replaces patch-esp-adf.sh) ──────────────────────
+
+def insert_before(text, marker_re, lines, sentinel):
+    """Insert `lines` before the first line matching `marker_re`, unless `sentinel`
+    already appears in the text (idempotent)."""
+    if sentinel in text:
+        return text, False
+    out, done = [], False
+    for line in text.splitlines(keepends=True):
+        if not done and marker_re.search(line):
+            for ins in lines:
+                out.append(ins + "\n")
+            done = True
+        out.append(line)
+    return "".join(out), done
+
+
+def patch_adf(adf, idf, link=False):
+    audio_board = adf / "components" / "audio_board"
+    board_src = REPO_ROOT / "components" / "audio_board" / BOARD_NAME
+    if not board_src.is_dir():
+        die(f"board sources missing at {board_src}")
+
+    step("ESP-ADF submodules (esp-adf-libs, esp-sr)")
+    run(["git", "-C", str(adf), "submodule", "update", "--init",
+         "components/esp-adf-libs", "components/esp-sr"])
+
+    dest = audio_board / BOARD_NAME
+    # A symlink/junction into the repo stays live for both ci/build.py and the VSCode
+    # ESP-IDF extension (idf.py build), so master edits to board_pins_config.c never
+    # go stale — don't clobber an existing one.
+    #
+    # link=True (dev, build-flash.py): install a junction. A plain copy gets stale the
+    # moment the repo master changes, AND re-copying carries the master's old mtime,
+    # so ninja sees source-older-than-.obj and skips recompiling (the I2S-pin bug).
+    # link=False (CI, ci/build.py): plain copy — the ADF clone is fresh each run, so
+    # there's nothing to go stale, and a copy avoids symlink surprises on the runner.
+    if is_link(dest):
+        step(f"Board sources linked at {dest} — leaving live link in place")
+    else:
+        if dest.exists():
+            shutil.rmtree(dest)
+        if link:
+            step(f"Linking board sources {dest} -> {board_src}")
+            if not link_dir(dest, board_src):
+                shutil.copytree(board_src, dest)
+        else:
+            step(f"Installing board sources into {dest}")
+            shutil.copytree(board_src, dest)
+
+    step("Patching Kconfig.projbuild")
+    kconfig = audio_board / "Kconfig.projbuild"
+    text, changed = insert_before(
+        kconfig.read_text(encoding="utf-8"),
+        re.compile(r"^endchoice"),
+        ['config ESP32_S3_ATLASCUBE_BOARD', '    bool "ESP32-S3-AtlasCube"'],
+        sentinel="ESP32_S3_ATLASCUBE_BOARD",
+    )
+    kconfig.write_text(text, encoding="utf-8")
+    print("    " + ("patched" if changed else "already patched"))
+
+    step("Patching CMakeLists.txt")
+    cmake = audio_board / "CMakeLists.txt"
+    text, changed = insert_before(
+        cmake.read_text(encoding="utf-8"),
+        re.compile(r"register_component\(\)"),
+        ['if (CONFIG_ESP32_S3_ATLASCUBE_BOARD)',
+         'message(STATUS "Current board name is " CONFIG_ESP32_S3_ATLASCUBE_BOARD)',
+         'list(APPEND COMPONENT_ADD_INCLUDEDIRS ./esp32_s3_atlascube)',
+         'set(COMPONENT_SRCS',
+         './esp32_s3_atlascube/board.c',
+         './esp32_s3_atlascube/board_pins_config.c',
+         ')',
+         'endif()',
+         ''],
+        sentinel="CONFIG_ESP32_S3_ATLASCUBE_BOARD",
+    )
+    cmake.write_text(text, encoding="utf-8")
+    print("    " + ("patched" if changed else "already patched"))
+
+    comp_mk = audio_board / "component.mk"
+    if comp_mk.is_file():
+        step("Patching component.mk (legacy GNU Make)")
+        mk = comp_mk.read_text(encoding="utf-8")
+        if "CONFIG_ESP32_S3_ATLASCUBE_BOARD" in mk:
+            print("    already patched")
+        else:
+            mk += ("\nifdef CONFIG_ESP32_S3_ATLASCUBE_BOARD\n"
+                   "COMPONENT_ADD_INCLUDEDIRS += ./esp32_s3_atlascube\n"
+                   "COMPONENT_SRCDIRS += ./esp32_s3_atlascube\n"
+                   "endif\n")
+            comp_mk.write_text(mk, encoding="utf-8")
+            print("    patched")
+
+    step("Patching ADF audio_stream / esp_actions for 4 MB Super Mini")
+    stream_cmake = adf / "components" / "audio_stream" / "CMakeLists.txt"
+    st = stream_cmake.read_text(encoding="utf-8")
+    if "ATLAS_MINI_ADF" in st:
+        print("    audio_stream already patched")
+    else:
+        old = (
+            'if((${IDF_TARGET} STREQUAL "esp32") OR (${IDF_TARGET} STREQUAL "esp32s3") '
+            'OR (${IDF_TARGET} STREQUAL "esp32p4")  OR (${IDF_TARGET} STREQUAL "esp32c5"))\n'
+            'list(APPEND COMPONENT_SRCS "aec_stream.c")\n'
+            'list(APPEND COMPONENT_REQUIRES esp-sr)\n'
+        )
+        new = (
+            '# ATLAS_MINI_ADF: skip AEC / TTS / algorithm streams (and esp-sr) on 4 MB.\n'
+            'if(NOT ATLAS_MINI_ADF)\n'
+            + old
+        )
+        if old not in st:
+            warn("audio_stream CMakeLists.txt marker not found — skip")
+        else:
+            st = st.replace(old, new, 1)
+            # close the extra if(NOT ATLAS_MINI_ADF) after the nested endif() pair
+            st = st.replace(
+                '    list(APPEND COMPONENT_SRCS "algorithm_stream.c" "tts_stream.c")\n'
+                'endif()\n'
+                'endif()\n',
+                '    list(APPEND COMPONENT_SRCS "algorithm_stream.c" "tts_stream.c")\n'
+                'endif()\n'
+                'endif()\n'
+                'endif()\n',
+                1,
+            )
+            stream_cmake.write_text(st, encoding="utf-8")
+            print("    audio_stream patched")
+
+    actions_cmake = adf / "components" / "esp_actions" / "CMakeLists.txt"
+    ac = actions_cmake.read_text(encoding="utf-8")
+    if "ATLAS_MINI_ADF" in ac:
+        print("    esp_actions already patched")
+    else:
+        warn("esp_actions CMakeLists.txt is missing the ATLAS_MINI_ADF guard — "
+             "4 MB builds need that patch in the tree")
+
+    step("ESP-IDF FreeRTOS patch")
+    patch = adf / "idf_patches" / "idf_v5.5_freertos.patch"
+    if not patch.is_file():
+        warn(f"FreeRTOS patch not found at {patch} — skipping")
+        return
+    apply_args = ["-C", str(idf), "apply", "--ignore-whitespace", str(patch)]
+    if git_ok(["-C", str(idf), "apply", "--reverse", "--check", "--ignore-whitespace", str(patch)]):
+        print("    already applied")
+    elif git_ok(["-C", str(idf), "apply", "--check", "--ignore-whitespace", str(patch)]):
+        run(["git", *apply_args])
+        print("    applied")
+    else:
+        die(f"FreeRTOS patch neither applicable nor already-applied — inspect {idf} manually.")

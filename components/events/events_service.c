@@ -1,0 +1,806 @@
+#include "events_service.h"
+
+#include "buzzer.h"
+#include "melodies.h"
+#include "playlist.h"
+#include "radio_service.h"
+#include "sd_player.h"
+#include "sdcard.h"
+#include "settings.h"
+#include "cJSON.h"
+#include "defines.h"
+#include "esp_attr.h"
+#include "esp_log.h"
+#include "esp_random.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "ntp_service.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static const char *TAG = "EVENTS";
+
+// Scheduler tick — every 30 s is enough for minute-level granularity.
+#define EVENTS_TICK_US (30 * 1000 * 1000ULL)
+
+#define EVENTS_FILE_TMP EVENTS_FILE ".tmp"
+
+// --------------------------------------------------------------------------
+// Global state
+// --------------------------------------------------------------------------
+
+// We keep the event_t[EVENTS_MAX] buffers (~5KB each) in PSRAM — internal
+// RAM is tight under WiFi/LVGL/mbedTLS and every KB matters during HTTPS
+// renegotiation. Access only from tasks (timer, HTTP), never from ISR.
+EXT_RAM_BSS_ATTR static event_t s_events[EVENTS_MAX];
+EXT_RAM_BSS_ATTR static bool    s_fired_today[EVENTS_MAX];
+
+static int              s_count = 0;
+static int              s_last_day = -1;                // for day-change detection
+
+static esp_timer_handle_t s_timer;
+static SemaphoreHandle_t  s_mtx;
+static bool               s_initialized;
+static events_fire_cb_t   s_fire_cb = NULL;
+
+// --------------------------------------------------------------------------
+// Helpers
+// --------------------------------------------------------------------------
+
+static void lock(void)   { xSemaphoreTake(s_mtx, portMAX_DELAY); }
+static void unlock(void) { xSemaphoreGive(s_mtx); }
+
+static void gen_id(char out[EVENT_ID_LEN])
+{
+    uint32_t r = esp_random();
+    snprintf(out, EVENT_ID_LEN, "%08lx", (unsigned long)r);
+}
+
+static int find_index_locked(const char *id)
+{
+    for (int i = 0; i < s_count; ++i) {
+        if (strncmp(s_events[i].id, id, EVENT_ID_LEN) == 0) return i;
+    }
+    return -1;
+}
+
+static bool playback_id_exists_locked(const char *playback_id)
+{
+    for (int i = 0; i < s_count; ++i) {
+        if (strncmp(s_events[i].playback_id, playback_id, EVENT_PLAYBACK_ID_LEN) == 0)
+            return true;
+    }
+    return false;
+}
+
+static const char *type_to_str(event_type_t t)
+{
+    switch (t) {
+        case EV_BIRTHDAY:    return "birthday";
+        case EV_NAMEDAY:     return "nameday";
+        case EV_REMINDER:    return "reminder";
+        case EV_ANNIVERSARY: return "anniversary";
+        case EV_VOICE:       return "voice";
+        case EV_SCHEDULE:    return "schedule";
+        case EV_CALENDAR:    return "calendar";
+        default:             return "reminder";
+    }
+}
+
+static event_type_t type_from_str(const char *s)
+{
+    if (!s) return EV_REMINDER;
+    if (strcmp(s, "birthday")    == 0) return EV_BIRTHDAY;
+    if (strcmp(s, "nameday")     == 0) return EV_NAMEDAY;
+    if (strcmp(s, "anniversary") == 0) return EV_ANNIVERSARY;
+    // "alarm" is the legacy radio-at-time type, now folded into EV_SCHEDULE
+    // (empty sound → playlist station). Existing events re-save as "schedule".
+    if (strcmp(s, "alarm")       == 0) return EV_SCHEDULE;
+    if (strcmp(s, "voice")       == 0) return EV_VOICE;
+    if (strcmp(s, "schedule")    == 0) return EV_SCHEDULE;
+    if (strcmp(s, "calendar")    == 0) return EV_CALENDAR;
+    return EV_REMINDER;
+}
+
+static const char *rec_to_str(event_recurrence_t r)
+{
+    switch (r) {
+        case EV_REC_NONE:    return "none";
+        case EV_REC_DAILY:   return "daily";
+        case EV_REC_WEEKLY:  return "weekly";
+        case EV_REC_MONTHLY: return "monthly";
+        case EV_REC_YEARLY:  return "yearly";
+        default:             return "none";
+    }
+}
+
+static event_recurrence_t rec_from_str(const char *s)
+{
+    if (!s) return EV_REC_NONE;
+    if (strcmp(s, "daily")   == 0) return EV_REC_DAILY;
+    if (strcmp(s, "weekly")  == 0) return EV_REC_WEEKLY;
+    if (strcmp(s, "monthly") == 0) return EV_REC_MONTHLY;
+    if (strcmp(s, "yearly")  == 0) return EV_REC_YEARLY;
+    return EV_REC_NONE;
+}
+
+// Shared with the REST layer (http_server) so both spell the wire values the
+// same way — unlike type/recurrence, which predate that and map twice.
+const char *events_text_pos_str(event_text_pos_t p)
+{
+    switch (p) {
+        case EV_TEXT_TOP:    return "top";
+        case EV_TEXT_BOTTOM: return "bottom";
+        case EV_TEXT_NONE:   return "none";
+        case EV_TEXT_CENTER:
+        default:             return "center";
+    }
+}
+
+event_text_pos_t events_text_pos_from_str(const char *s)
+{
+    if (!s) return EV_TEXT_CENTER;
+    if (strcmp(s, "top")    == 0) return EV_TEXT_TOP;
+    if (strcmp(s, "bottom") == 0) return EV_TEXT_BOTTOM;
+    if (strcmp(s, "none")   == 0) return EV_TEXT_NONE;
+    return EV_TEXT_CENTER;
+}
+
+// --------------------------------------------------------------------------
+// JSON — load / save (atomic write via .tmp + rename)
+// --------------------------------------------------------------------------
+
+static esp_err_t load_from_file(void)
+{
+    FILE *f = fopen(EVENTS_FILE, "r");
+    if (!f) return ESP_FAIL;
+
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    rewind(f);
+    if (size <= 0) { fclose(f); return ESP_FAIL; }
+
+    char *buf = malloc(size + 1);
+    if (!buf) { fclose(f); return ESP_ERR_NO_MEM; }
+    fread(buf, 1, size, f);
+    buf[size] = '\0';
+    fclose(f);
+
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) { ESP_LOGW(TAG, "JSON parse failed"); return ESP_FAIL; }
+
+    cJSON *arr = cJSON_GetObjectItem(root, "events");
+    if (!cJSON_IsArray(arr)) { cJSON_Delete(root); return ESP_FAIL; }
+
+    s_count = 0;
+    int n = cJSON_GetArraySize(arr);
+    for (int i = 0; i < n && s_count < EVENTS_MAX; ++i) {
+        cJSON *it = cJSON_GetArrayItem(arr, i);
+        if (!cJSON_IsObject(it)) continue;
+
+        event_t e = {0};
+
+        cJSON *j = cJSON_GetObjectItem(it, "id");
+        if (cJSON_IsString(j)) strncpy(e.id, j->valuestring, EVENT_ID_LEN - 1);
+        if (e.id[0] == '\0') gen_id(e.id);
+
+        j = cJSON_GetObjectItem(it, "playback_id");
+        if (cJSON_IsString(j)) strncpy(e.playback_id, j->valuestring, EVENT_PLAYBACK_ID_LEN - 1);
+
+        j = cJSON_GetObjectItem(it, "type");
+        e.type = type_from_str(cJSON_IsString(j) ? j->valuestring : NULL);
+
+        j = cJSON_GetObjectItem(it, "title");
+        if (cJSON_IsString(j)) strncpy(e.title, j->valuestring, EVENT_TITLE_LEN - 1);
+
+        j = cJSON_GetObjectItem(it, "year");   if (cJSON_IsNumber(j)) e.year  = j->valueint;
+        j = cJSON_GetObjectItem(it, "month");  if (cJSON_IsNumber(j)) e.month = j->valueint;
+        j = cJSON_GetObjectItem(it, "day");    if (cJSON_IsNumber(j)) e.day   = j->valueint;
+        j = cJSON_GetObjectItem(it, "hour");   if (cJSON_IsNumber(j)) e.hour  = j->valueint;
+        j = cJSON_GetObjectItem(it, "minute"); if (cJSON_IsNumber(j)) e.minute= j->valueint;
+
+        j = cJSON_GetObjectItem(it, "recurrence");
+        e.recurrence = rec_from_str(cJSON_IsString(j) ? j->valuestring : NULL);
+
+        j = cJSON_GetObjectItem(it, "enabled");
+        e.enabled = cJSON_IsBool(j) ? cJSON_IsTrue(j) : true;
+
+        j = cJSON_GetObjectItem(it, "station");
+        if (cJSON_IsNumber(j)) e.station = j->valueint;
+
+        j = cJSON_GetObjectItem(it, "volume");
+        if (cJSON_IsNumber(j)) e.volume = j->valueint;
+        if (e.volume < 0)   e.volume = 0;
+        if (e.volume > 100) e.volume = 100;
+
+        j = cJSON_GetObjectItem(it, "sound");
+        if (cJSON_IsString(j)) strncpy(e.sound, j->valuestring, EVENT_SOUND_LEN - 1);
+
+        j = cJSON_GetObjectItem(it, "image");
+        if (cJSON_IsString(j)) strncpy(e.image, j->valuestring, EVENT_IMAGE_LEN - 1);
+
+        j = cJSON_GetObjectItem(it, "text_pos");
+        e.text_pos = events_text_pos_from_str(cJSON_IsString(j) ? j->valuestring : NULL);
+
+        s_events[s_count++] = e;
+    }
+
+    cJSON_Delete(root);
+    ESP_LOGI(TAG, "Loaded %d events", s_count);
+    return ESP_OK;
+}
+
+static esp_err_t save_to_file(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON *arr  = cJSON_AddArrayToObject(root, "events");
+
+    for (int i = 0; i < s_count; ++i) {
+        const event_t *e = &s_events[i];
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id",                 e->id);
+        cJSON_AddStringToObject(o, "playback_id",            e->playback_id);
+        cJSON_AddStringToObject(o, "type",               type_to_str(e->type));
+        cJSON_AddStringToObject(o, "title",              e->title);
+        cJSON_AddNumberToObject(o, "year",               e->year);
+        cJSON_AddNumberToObject(o, "month",              e->month);
+        cJSON_AddNumberToObject(o, "day",                e->day);
+        cJSON_AddNumberToObject(o, "hour",               e->hour);
+        cJSON_AddNumberToObject(o, "minute",             e->minute);
+        cJSON_AddStringToObject(o, "recurrence",         rec_to_str(e->recurrence));
+        cJSON_AddBoolToObject  (o, "enabled",            e->enabled);
+        cJSON_AddNumberToObject(o, "station",            e->station);
+        cJSON_AddNumberToObject(o, "volume",             e->volume);
+        cJSON_AddStringToObject(o, "sound",              e->sound);
+        cJSON_AddStringToObject(o, "image",              e->image);
+        cJSON_AddStringToObject(o, "text_pos",           events_text_pos_str(e->text_pos));
+        cJSON_AddItemToArray(arr, o);
+    }
+
+    char *str = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!str) return ESP_ERR_NO_MEM;
+
+    FILE *f = fopen(EVENTS_FILE_TMP, "w");
+    if (!f) { free(str); return ESP_FAIL; }
+    fwrite(str, 1, strlen(str), f);
+    fclose(f);
+    free(str);
+
+    // SPIFFS requires removing the destination file before rename.
+    remove(EVENTS_FILE);
+    if (rename(EVENTS_FILE_TMP, EVENTS_FILE) != 0) {
+        ESP_LOGE(TAG, "rename tmp→target failed");
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+// --------------------------------------------------------------------------
+// "Does this event fall on today?" per recurrence rules
+// --------------------------------------------------------------------------
+
+static bool matches_today(const event_t *e, const struct tm *lt)
+{
+    if (!e->enabled) return false;
+
+    switch (e->recurrence) {
+        case EV_REC_NONE:
+            return (lt->tm_year + 1900 == e->year)
+                && (lt->tm_mon  + 1    == e->month)
+                && (lt->tm_mday        == e->day);
+
+        case EV_REC_DAILY:
+            return true;
+
+        case EV_REC_WEEKLY: {
+            // Weekday of the base date.
+            struct tm base = {
+                .tm_year = e->year - 1900,
+                .tm_mon  = e->month - 1,
+                .tm_mday = e->day,
+                .tm_hour = 12,
+            };
+            time_t t = mktime(&base);
+            if (t == (time_t)-1) return false;
+            struct tm tmp;
+            localtime_r(&t, &tmp);
+            return tmp.tm_wday == lt->tm_wday;
+        }
+
+        case EV_REC_MONTHLY:
+            return lt->tm_mday == e->day;
+
+        case EV_REC_YEARLY:
+            return (lt->tm_mon + 1 == e->month) && (lt->tm_mday == e->day);
+    }
+    return false;
+}
+
+// --------------------------------------------------------------------------
+// Scheduler
+// --------------------------------------------------------------------------
+
+static void fire_event(const event_t *e)
+{
+    ESP_LOGI(TAG, "FIRE: [%s] %s (type=%s)",
+             e->id, e->title, type_to_str(e->type));
+
+    if (e->type == EV_SCHEDULE) {
+        // Scheduled playback: start the configured source as if the user pressed
+        // play at this time — no "ringtone"/toast semantics. The UI surfaces the
+        // player screen instead of a notification (see ui_manager on_event_fired).
+        if (!e->sound[0] && e->station == EVENT_STATION_STOP) {
+            // Stop schedule: same as the user pressing Stop (radio or SD
+            // player). Volume is left untouched — nothing is starting.
+            radio_stop();
+            if (s_fire_cb) s_fire_cb(e);
+            return;
+        }
+        settings_set_volume(e->volume);
+        if (e->sound[0]) {
+            // SD source: path relative to the card root. A file plays that track
+            // (its folder becomes the queue); a directory plays the whole folder.
+            if (sdcard_init() == ESP_OK) {   // lazy mount on first SD use
+                char path[160];
+                snprintf(path, sizeof(path), "%s%s", SD_MOUNT_POINT, e->sound);
+                struct stat st;
+                if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+                    sd_player_play_folder(path);
+                else
+                    sd_player_play_path(path);
+            } else {
+                ESP_LOGW(TAG, "Schedule '%s' SD not available → silent", e->id);
+            }
+        } else {
+            int n = playlist_get_count();
+            if (e->station >= 0 && e->station < n) {
+                radio_play_index(e->station);
+            } else {
+                ESP_LOGW(TAG, "Schedule station %d out of range (playlist=%d)",
+                         e->station, n);
+            }
+        }
+    } else if (e->type == EV_VOICE) {
+        // Voice notification: play the pre-rendered WAV from the SD card,
+        // interrupting and then restoring the current source.
+        if (e->sound[0] && sdcard_init() == ESP_OK) {   // lazy mount on first SD use
+            radio_play_notification(e->sound, e->volume);
+        } else {
+            ESP_LOGW(TAG, "Voice event '%s' has no sound/SD → reminder melody", e->id);
+            melody_play(MELODY_REMINDER);
+        }
+    } else if (e->type == EV_BIRTHDAY || e->type == EV_ANNIVERSARY) {
+        melody_play(MELODY_BIRTHDAY);
+    } else {
+        melody_play(MELODY_REMINDER);
+    }
+
+    if (s_fire_cb) s_fire_cb(e);
+}
+
+static void check_events(void)
+{
+    if (!ntp_service_is_synced()) return;
+
+    time_t now = time(NULL);
+    struct tm lt;
+    localtime_r(&now, &lt);
+
+    // Day changed → clear flags.
+    if (s_last_day != lt.tm_mday) {
+        s_last_day = lt.tm_mday;
+        memset(s_fired_today, 0, sizeof(s_fired_today));
+        ESP_LOGI(TAG, "Day changed → flags reset (today=%04d-%02d-%02d)",
+                 lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
+    }
+
+    int now_min = lt.tm_hour * 60 + lt.tm_min;
+
+    lock();
+    for (int i = 0; i < s_count; ++i) {
+        event_t *e = &s_events[i];
+        // Calendar mirror events are display-only — never fired.
+        if (e->type == EV_CALENDAR) continue;
+        if (!matches_today(e, &lt)) continue;
+
+        int target = e->hour * 60 + e->minute;
+
+        // 1-minute window: scheduler ticks every 30 s, won't miss.
+        if (!s_fired_today[i] && now_min >= target && now_min <= target + 1) {
+            fire_event(e);
+            s_fired_today[i] = true;
+        }
+    }
+    unlock();
+}
+
+static void timer_cb(void *arg)
+{
+    (void)arg;
+    check_events();
+}
+
+// --------------------------------------------------------------------------
+// Public API
+// --------------------------------------------------------------------------
+
+esp_err_t events_service_init(void)
+{
+    if (s_initialized) return ESP_OK;
+
+    s_mtx = xSemaphoreCreateMutex();
+    if (!s_mtx) return ESP_ERR_NO_MEM;
+
+    if (load_from_file() != ESP_OK) {
+        ESP_LOGI(TAG, "No events.json yet → starting with empty list");
+        s_count = 0;
+        save_to_file();
+    }
+
+    esp_timer_create_args_t args = {
+        .callback        = timer_cb,
+        .name            = "events_tick",
+    };
+    esp_err_t err = esp_timer_create(&args, &s_timer);
+    if (err != ESP_OK) return err;
+
+    err = esp_timer_start_periodic(s_timer, EVENTS_TICK_US);
+    if (err != ESP_OK) return err;
+
+    s_initialized = true;
+    ESP_LOGI(TAG, "Initialized, tick=%llu us", (unsigned long long)EVENTS_TICK_US);
+
+    // First check immediately (not after 30 s).
+    check_events();
+    return ESP_OK;
+}
+
+void events_service_on_tz_changed(void)
+{
+    if (!s_initialized) return;
+    ESP_LOGI(TAG, "TZ changed → resetting fired flags");
+    lock();
+    memset(s_fired_today, 0, sizeof(s_fired_today));
+    s_last_day = -1;
+    unlock();
+    check_events();
+}
+
+esp_err_t events_add(event_t *ev)
+{
+    if (!ev) return ESP_ERR_INVALID_ARG;
+    lock();
+    if (s_count >= EVENTS_MAX) { unlock(); return ESP_ERR_NO_MEM; }
+
+    if (ev->id[0] == '\0') gen_id(ev->id);
+    // ID collision → regenerate a few times.
+    for (int tries = 0; tries < 5 && find_index_locked(ev->id) >= 0; ++tries) {
+        gen_id(ev->id);
+    }
+
+    s_events[s_count] = *ev;
+    s_fired_today[s_count] = false;
+    s_count++;
+    esp_err_t err = save_to_file();
+    unlock();
+
+    if (err == ESP_OK) check_events();
+    return err;
+}
+
+esp_err_t events_update(const char *id, const event_t *ev)
+{
+    if (!id || !ev) return ESP_ERR_INVALID_ARG;
+    lock();
+    int idx = find_index_locked(id);
+    if (idx < 0) { unlock(); return ESP_ERR_NOT_FOUND; }
+
+    event_t updated = *ev;
+    strncpy(updated.id, id, EVENT_ID_LEN - 1);
+    updated.id[EVENT_ID_LEN - 1] = '\0';
+
+    s_events[idx] = updated;
+    s_fired_today[idx] = false;   // allow firing again today
+    esp_err_t err = save_to_file();
+    unlock();
+
+    if (err == ESP_OK) check_events();
+    return err;
+}
+
+esp_err_t events_remove(const char *id)
+{
+    if (!id) return ESP_ERR_INVALID_ARG;
+    lock();
+    int idx = find_index_locked(id);
+    if (idx < 0) { unlock(); return ESP_ERR_NOT_FOUND; }
+
+    for (int i = idx; i < s_count - 1; ++i) {
+        s_events[i]      = s_events[i + 1];
+        s_fired_today[i] = s_fired_today[i + 1];
+    }
+    s_count--;
+    esp_err_t err = save_to_file();
+    unlock();
+    return err;
+}
+
+static void make_unique_event_id_locked(char id[EVENT_ID_LEN])
+{
+    do { gen_id(id); } while (find_index_locked(id) >= 0);
+}
+
+static void make_unique_playback_id_locked(char playback_id[EVENT_PLAYBACK_ID_LEN])
+{
+    do { gen_id(playback_id); } while (playback_id_exists_locked(playback_id));
+}
+
+esp_err_t events_add_playback(event_t *start, event_t *stop)
+{
+    if (!start) return ESP_ERR_INVALID_ARG;
+
+    lock();
+    int needed = stop ? 2 : 1;
+    if (s_count > EVENTS_MAX - needed) { unlock(); return ESP_ERR_NO_MEM; }
+
+    char playback_id[EVENT_PLAYBACK_ID_LEN];
+    make_unique_playback_id_locked(playback_id);
+    make_unique_event_id_locked(start->id);
+    strncpy(start->playback_id, playback_id, EVENT_PLAYBACK_ID_LEN);
+
+    s_events[s_count] = *start;
+    s_fired_today[s_count++] = false;
+    if (stop) {
+        // start is already in s_events here, so the uniqueness scan covers it.
+        make_unique_event_id_locked(stop->id);
+        strncpy(stop->playback_id, playback_id, EVENT_PLAYBACK_ID_LEN);
+        s_events[s_count] = *stop;
+        s_fired_today[s_count++] = false;
+    }
+
+    esp_err_t err = save_to_file();
+    unlock();
+
+    if (err == ESP_OK) check_events();
+    return err;
+}
+
+bool events_get_playback(const char *playback_id, event_t *start, event_t *stop)
+{
+    if (!playback_id || !playback_id[0] || !start || !stop) return false;
+
+    bool have_start = false;
+    memset(stop, 0, sizeof(*stop));
+    lock();
+    for (int i = 0; i < s_count; ++i) {
+        const event_t *e = &s_events[i];
+        if (strncmp(e->playback_id, playback_id, EVENT_PLAYBACK_ID_LEN) != 0) continue;
+        if (!e->sound[0] && e->station == EVENT_STATION_STOP) {
+            *stop = *e;
+        } else {
+            *start = *e;
+            have_start = true;
+        }
+    }
+    unlock();
+    return have_start;
+}
+
+esp_err_t events_update_playback(const char *playback_id,
+                             const event_t *start, const event_t *stop)
+{
+    if (!playback_id || !playback_id[0] || !start) return ESP_ERR_INVALID_ARG;
+
+    lock();
+    int start_idx = -1, stop_idx = -1;
+    for (int i = 0; i < s_count; ++i) {
+        const event_t *e = &s_events[i];
+        if (strncmp(e->playback_id, playback_id, EVENT_PLAYBACK_ID_LEN) != 0) continue;
+        if (!e->sound[0] && e->station == EVENT_STATION_STOP) stop_idx = i;
+        else start_idx = i;
+    }
+    if (start_idx < 0) { unlock(); return ESP_ERR_NOT_FOUND; }
+    if (stop && stop_idx < 0 && s_count >= EVENTS_MAX) {
+        unlock();
+        return ESP_ERR_NO_MEM;
+    }
+
+    event_t updated_start = *start;
+    strncpy(updated_start.id, s_events[start_idx].id, EVENT_ID_LEN);
+    strncpy(updated_start.playback_id, playback_id, EVENT_PLAYBACK_ID_LEN);
+    s_events[start_idx] = updated_start;
+    s_fired_today[start_idx] = false;
+
+    if (stop) {
+        event_t updated_stop = *stop;
+        strncpy(updated_stop.playback_id, playback_id, EVENT_PLAYBACK_ID_LEN);
+        if (stop_idx >= 0) {
+            strncpy(updated_stop.id, s_events[stop_idx].id, EVENT_ID_LEN);
+            s_events[stop_idx] = updated_stop;
+            s_fired_today[stop_idx] = false;
+        } else {
+            make_unique_event_id_locked(updated_stop.id);
+            s_events[s_count] = updated_stop;
+            s_fired_today[s_count++] = false;
+        }
+    } else if (stop_idx >= 0) {
+        for (int i = stop_idx; i < s_count - 1; ++i) {
+            s_events[i] = s_events[i + 1];
+            s_fired_today[i] = s_fired_today[i + 1];
+        }
+        s_count--;
+    }
+
+    esp_err_t err = save_to_file();
+    unlock();
+
+    if (err == ESP_OK) check_events();
+    return err;
+}
+
+esp_err_t events_remove_playback(const char *playback_id)
+{
+    if (!playback_id || !playback_id[0]) return ESP_ERR_INVALID_ARG;
+
+    lock();
+    int w = 0, removed = 0;
+    for (int r = 0; r < s_count; ++r) {
+        if (strncmp(s_events[r].playback_id, playback_id, EVENT_PLAYBACK_ID_LEN) == 0) {
+            removed++;
+            continue;
+        }
+        if (w != r) {
+            s_events[w] = s_events[r];
+            s_fired_today[w] = s_fired_today[r];
+        }
+        w++;
+    }
+    if (removed == 0) { unlock(); return ESP_ERR_NOT_FOUND; }
+    s_count = w;
+    esp_err_t err = save_to_file();
+    unlock();
+    return err;
+}
+
+int events_get_all(event_t *out, int max)
+{
+    if (!out || max <= 0) return 0;
+    lock();
+    int n = s_count < max ? s_count : max;
+    memcpy(out, s_events, n * sizeof(event_t));
+    unlock();
+    return n;
+}
+
+int events_count(void)
+{
+    lock();
+    int n = s_count;
+    unlock();
+    return n;
+}
+
+esp_err_t events_replace_calendar(const event_t *arr, int n)
+{
+    if (n < 0) n = 0;
+
+    lock();
+
+    // Drop existing calendar events, compacting the arrays in place.
+    int w = 0;
+    for (int r = 0; r < s_count; ++r) {
+        if (s_events[r].type == EV_CALENDAR) continue;
+        if (w != r) {
+            s_events[w]      = s_events[r];
+            s_fired_today[w] = s_fired_today[r];
+        }
+        w++;
+    }
+    s_count = w;
+
+    // Append the new calendar set (forcing type + id), respecting capacity.
+    for (int i = 0; i < n && s_count < EVENTS_MAX; ++i) {
+        event_t e = arr[i];
+        e.type = EV_CALENDAR;
+        if (e.id[0] == '\0') gen_id(e.id);
+        s_events[s_count]      = e;
+        s_fired_today[s_count] = false;   // never fires, but keep arrays aligned
+        s_count++;
+    }
+
+    esp_err_t err = save_to_file();
+    unlock();
+
+    ESP_LOGI(TAG, "Calendar replaced: %d event(s), total now %d", n, s_count);
+    return err;
+}
+
+bool events_calendar_current(event_t *out)
+{
+    if (!out || !s_initialized || !ntp_service_is_synced()) return false;
+
+    time_t now = time(NULL);
+    struct tm lt;
+    localtime_r(&now, &lt);
+    int now_min = lt.tm_hour * 60 + lt.tm_min;
+
+    lock();
+    int best        = -1;
+    int best_target = 24 * 60 + 1;   // sentinel past end-of-day
+    for (int i = 0; i < s_count; ++i) {
+        const event_t *e = &s_events[i];
+        if (e->type != EV_CALENDAR) continue;
+        if (!matches_today(e, &lt)) continue;      // checks enabled + today's date
+
+        int target = e->hour * 60 + e->minute;
+        if (target < now_min) continue;            // already passed today
+        if (target < best_target) { best_target = target; best = i; }
+    }
+    bool found = best >= 0;
+    if (found) *out = s_events[best];
+    unlock();
+    return found;
+}
+
+const event_t *events_find(const char *id)
+{
+    if (!id) return NULL;
+    lock();
+    int idx = find_index_locked(id);
+    const event_t *p = (idx >= 0) ? &s_events[idx] : NULL;
+    unlock();
+    return p;
+}
+
+void events_service_set_fire_cb(events_fire_cb_t cb)
+{
+    s_fire_cb = cb;
+}
+
+const char *events_type_label(event_type_t t)
+{
+    switch (t) {
+        case EV_BIRTHDAY:    return "BIRTHDAY";
+        case EV_NAMEDAY:     return "NAME DAY";
+        case EV_ANNIVERSARY: return "ANNIVERSARY";
+        case EV_VOICE:       return "VOICE";
+        case EV_SCHEDULE:    return "PLAYBACK";
+        case EV_CALENDAR:    return "CALENDAR";
+        case EV_REMINDER:
+        default:             return "REMINDER";
+    }
+}
+
+int events_pending_today_count(void)
+{
+    if (!s_initialized || !ntp_service_is_synced()) return 0;
+
+    time_t now = time(NULL);
+    struct tm lt;
+    localtime_r(&now, &lt);
+    int now_min = lt.tm_hour * 60 + lt.tm_min;
+
+    lock();
+    int n = 0;
+    for (int i = 0; i < s_count; ++i) {
+        const event_t *e = &s_events[i];
+        if (e->type == EV_CALENDAR) continue;   // display-only, not counted
+        if (e->type == EV_SCHEDULE && e->playback_id[0] &&
+            !e->sound[0] && e->station == EVENT_STATION_STOP) continue;
+        if (!e->enabled) continue;
+        if (s_fired_today[i]) continue;
+        if (!matches_today(e, &lt)) continue;
+
+        int target = e->hour * 60 + e->minute;
+        if (target >= now_min) n++;
+    }
+    unlock();
+    return n;
+}

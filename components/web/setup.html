@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AtlasCube – Setup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e; color: #e0e0e0; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .card {
+    background: #16213e; border-radius: 12px; padding: 28px 24px;
+    width: 100%; max-width: 400px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  }
+  .header { text-align: center; margin-bottom: 24px; }
+  .header h1 { font-size: 22px; font-weight: 700; color: #4fc3f7; letter-spacing: 1px; }
+  .header p { font-size: 13px; color: #888; margin-top: 6px; }
+  .home-link { display: block; text-align: center; font-size: 13px; color: #4fc3f7;
+               text-decoration: none; margin: 14px 0; }
+  .home-link:hover { color: #81d4fa; text-decoration: underline; }
+  h2 {
+    font-size: 12px; color: #4fc3f7; text-transform: uppercase; letter-spacing: 1px;
+    margin: 24px 0 14px; padding-bottom: 8px; border-bottom: 1px solid #2a4a7f;
+  }
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 11px; color: #aaa; margin-bottom: 6px;
+          text-transform: uppercase; letter-spacing: 0.8px; }
+  input[type="text"], input[type="password"], input[type="file"] {
+    width: 100%; padding: 12px 14px; background: #0f3460; border: 1px solid #2a4a7f;
+    border-radius: 8px; color: #e0e0e0; font-size: 15px; outline: none;
+  }
+  input[type="file"] { padding: 10px; font-size: 13px; }
+  input:focus { border-color: #4fc3f7; }
+  .show-pass { display: flex; align-items: center; gap: 8px; margin-top: 8px;
+               font-size: 13px; color: #888; cursor: pointer; user-select: none; }
+  button {
+    width: 100%; padding: 13px; background: #4fc3f7; color: #1a1a2e; border: none;
+    border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 8px;
+  }
+  button:hover:not(:disabled) { background: #81d4fa; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.ghost { background: #2a4a7f; color: #e0e0e0; }
+  button.ghost:hover:not(:disabled) { background: #335a99; }
+  .status {
+    display: none; text-align: center; margin-top: 16px; font-size: 14px;
+    padding: 12px 16px; border-radius: 8px; background: rgba(79,195,247,0.12);
+    color: #4fc3f7; line-height: 1.5;
+  }
+  .status.error { background: rgba(244,143,177,0.12); color: #f48fb1; }
+  .status.visible { display: block; }
+  .wifi-ok { text-align: center; margin: 4px 0 10px; padding: 12px 16px;
+             border-radius: 8px; background: rgba(110,231,160,0.12);
+             color: #6ee7a0; font-size: 13px; line-height: 1.5; }
+  .www-warn { display: none; margin: 4px 0 14px; padding: 12px 16px;
+              border-radius: 8px; background: rgba(255,180,84,0.12);
+              border: 1px solid #ffb454; color: #ffb454; font-size: 13px;
+              line-height: 1.5; }
+  .www-warn.visible { display: block; }
+  .www-warn code { background: rgba(0,0,0,0.25); padding: 1px 5px;
+                   border-radius: 4px; color: #ffd9a0; }
+  .www-warn a { color: #ffd9a0; text-decoration: underline; }
+  .www-warn a:hover { color: #fff; }
+  .www-hashes { margin-top: 10px; font-family: monospace; font-size: 12px;
+                color: #ffd9a0; word-break: break-all; }
+  .www-hashes:empty { display: none; }
+  .hint { font-size: 12px; color: #666; margin-top: 10px; line-height: 1.5; }
+  .hint a { color: #6ee7a0; font-weight: 600; text-decoration: underline; }
+  .pins-allowed { font-size: 12px; color: #9fcaff; margin: 6px 0 4px; line-height: 1.9; }
+  .pins-allowed .ap { display: inline-block; min-width: 22px; text-align: center;
+                      font-family: monospace; color: #6ee7a0; }
+  .pins-allowed .ap.used { color: #ff7a7a; font-weight: 700; }
+  .fw-version { text-align: center; font-size: 11px; color: #555; margin-top: 20px;
+                letter-spacing: 0.5px; }
+  .pin-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .pin-row label { flex: 0 0 130px; margin: 0; text-transform: none; letter-spacing: 0;
+                   font-size: 13px; color: #cfcfcf; font-family: monospace; }
+  .pin-row input { width: 84px; padding: 8px 10px; background: #0f3460;
+                   border: 1px solid #2a4a7f; border-radius: 6px; color: #e0e0e0;
+                   font-size: 14px; outline: none; text-align: center; }
+  .pin-row input:focus { border-color: #4fc3f7; }
+  .pin-row input.bad  { border-color: #f48fb1; background: #2a1718; }
+  .pin-row input.warn { border-color: #ffb454; background: #2a2316; }
+  .pin-note { flex: 1; font-size: 11px; min-height: 13px; color: #f48fb1;
+              line-height: 1.3; }
+  .pin-note.w { color: #ffb454; }
+  .pin-note.d { color: #777; }              /* signal description (no issue) */
+  .pin-section { font-size: 14px; font-weight: 700; color: #4fc3f7;
+                 letter-spacing: 0.5px; margin: 22px 0 10px; padding-bottom: 6px;
+                 border-bottom: 1px solid #2a4a7f; }
+  .pin-section:first-child { margin-top: 8px; }
+  .pin-section-note { font-size: 11.5px; color: #9fb0c8; margin: -4px 0 10px;
+                      line-height: 1.5; }
+  .pin-section-note code { background: rgba(0,0,0,0.25); padding: 1px 5px;
+                           border-radius: 4px; color: #cfe0ff; }
+  /* Sections not used by the compiled firmware (visible via "Show all"):
+     violet-tinted background (blue-red mix) so they stand out from the blue theme. */
+  .pin-unused { background: rgba(156, 80, 200, 0.18); }
+  .pin-unused.pin-row { border-radius: 6px; padding: 2px 8px;
+                        margin-left: -8px; margin-right: -8px; }
+  .pin-unused.pin-section { padding: 6px 8px; margin-left: -8px; margin-right: -8px;
+                            border-radius: 6px 6px 0 0; }
+  .pin-unused.pin-section .tag { font-size: 10.5px; font-weight: 400; color: #c9a3e0;
+                                 letter-spacing: 0; margin-left: 8px; }
+  .pin-unused.pin-section-note { padding: 4px 8px; margin-left: -8px;
+                                 margin-right: -8px; }
+  .conflicts { display: none; margin: 4px 0 12px; padding: 10px 14px; border-radius: 8px;
+               background: #2a1718; border: 1px solid #6b2a2a; color: #ffc4c4;
+               font-size: 12.5px; line-height: 1.5; }
+  .conflicts.visible { display: block; }
+  .conflicts b { color: #fff; }
+  .btn-row { display: flex; gap: 10px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <h1>AtlasCube</h1>
+    <p>Built-in setup page</p>
+  </div>
+
+  <a href="/" class="home-link">← Back to AtlasCube</a>
+
+  <h2>Wi-Fi</h2>
+  <div id="wifiNote" style="display:none"></div>
+  <form id="wifiForm" novalidate style="display:none">
+    <div class="form-group">
+      <label for="ssid">Network SSID</label>
+      <input type="text" id="ssid" placeholder="Your Wi-Fi network name"
+             autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+    </div>
+    <div class="form-group">
+      <label for="pass">Password</label>
+      <input type="password" id="pass" placeholder="Wi-Fi password" autocomplete="new-password">
+      <label class="show-pass"><input type="checkbox" id="showPass"> Show password</label>
+    </div>
+    <button type="submit" id="wifiBtn">Save &amp; Connect</button>
+  </form>
+  <button type="button" id="wifiChangeBtn" class="ghost" style="display:none">Change Wi-Fi network</button>
+  <div class="status" id="wifiStatus"></div>
+
+  <h2>Device settings</h2>
+  <p class="hint">Backup / restore every user file on the <code>config</code> partition
+     (settings, theme, events, MQTT, layout, station list) together with the pin map as a
+     single file — import it here after a web flash to re-provision the device in one step.
+     The Wi-Fi <strong>password</strong> is not included (it is stored separately, outside
+     <code>settings.json</code>) — set Wi-Fi above. Same file format as
+     <em>Settings → System</em> in the web UI, so a backup made there imports here and the
+     other way round. A full power cycle is needed after import.</p>
+  <div class="btn-row">
+    <button type="button" id="cfgImportBtn">Import from file</button>
+    <button type="button" id="cfgExportBtn" class="ghost">Export to file</button>
+  </div>
+  <input type="file" id="cfgImportFile" accept=".json" style="display:none">
+  <div class="status" id="cfgStatus"></div>
+
+  <h2>Firmware update (OTA)</h2>
+  <p class="fw-version" id="otaVer" style="text-align:left;margin:0 0 10px"></p>
+  <p class="hint">Upload an application image — <code>atlascube.bin</code>, or
+     <code>AtlasCube-&lt;display&gt;-ota.bin</code> for your display from
+     <a href="https://atlascube.net/flash/" target="_blank" rel="noopener">atlascube.net/flash</a>.
+     It is written to the inactive slot and the device reboots into it; settings and
+     pin map are kept. Works from this built-in page even if the web UI partition is wiped.
+     <strong>Don't power off during the upload.</strong></p>
+  <div class="form-group">
+    <input type="file" id="otaFile" accept=".bin">
+  </div>
+  <button type="button" id="otaBtn">Upload &amp; install firmware</button>
+  <progress id="otaProgress" value="0" max="100"
+            style="display:none;width:100%;margin-top:10px"></progress>
+  <div class="status" id="otaStatus"></div>
+
+  <h2>Web UI files</h2>
+  <p class="fw-version" id="wwwVer" style="text-align:left;margin:0 0 10px"></p>
+  <div class="www-warn" id="wwwWarn">
+    ⚠️ The web UI files don't match the firmware — left behind by an app-only OTA
+    update. Re-upload the new web UI files below, and include
+    <code>www_version.txt</code> in the selection to clear this warning.
+    Get the matching files (<code>AtlasCube-www.zip</code>) from the
+    <a href="https://github.com/marcinozog/AtlasCube/releases/latest/download/AtlasCube-www.zip"
+       target="_blank" rel="noopener">latest GitHub release</a>, then extract and
+    upload them below.
+    <div class="www-hashes" id="wwwHashes"></div>
+  </div>
+  <p class="hint">Optional / recovery only — the web UI ships inside the firmware,
+     so a normal flash already includes it. Use this just to patch or restore
+     individual files without reflashing.</p>
+  <div class="form-group">
+    <input type="file" id="files" multiple
+           accept=".html,.css,.js,.json,.csv,.svg,.txt">
+  </div>
+  <button type="button" id="uploadBtn">Upload selected files</button>
+  <div class="status" id="uploadStatus"></div>
+  <p class="hint">Pick the files from <code>spiffs_image/www/</code> (raw, uncompressed) —
+     get the matching set (<code>AtlasCube-www.zip</code>) from the
+     <a href="https://github.com/marcinozog/AtlasCube/releases/latest/download/AtlasCube-www.zip"
+        target="_blank" rel="noopener">latest release</a>.
+     The device gzips HTML/CSS/JS on upload. Icons (.ico) are not supported here.
+     Include <code>www_version.txt</code> to clear the "web UI out of date" warning.</p>
+
+  <h2>Hardware pins</h2>
+  <p class="hint" id="pinsDriver">Loading…</p>
+  <p class="pins-allowed">Allowed pins (<span style="color:#ff7a7a;font-weight:700">in use</span>
+     / <span style="color:#6ee7a0">free</span>): <span id="allowedPins"></span></p>
+  <p class="hint">GPIO number per signal, or <code>-1</code> to disable. The display
+     driver is fixed in this firmware — only the wiring is configurable here.
+     Reserved 26–37 (flash/PSRAM) and duplicates are blocked; strapping (0/3/45/46)
+     and native-USB (19/20) pins are flagged but allowed; 43/44 are the UART0
+     console (avoid unless you don't need serial logging). Saved values take effect
+     after the restart.</p>
+  <button type="button" id="pinsShowAllBtn" class="ghost" style="display:none">Show all sections</button>
+  <div id="pinsGrid"></div>
+  <div class="conflicts" id="pinsConflicts"></div>
+  <div class="btn-row">
+    <button type="button" id="pinsBtn" disabled>Save pins &amp; restart</button>
+    <button type="button" id="pinsResetBtn" class="ghost">Reset to defaults</button>
+  </div>
+  <div class="status" id="pinsStatus"></div>
+
+  <a href="/" class="home-link">← Back to AtlasCube</a>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Filled from /api/state and /api/pins; embedded into the export file so an
+  // import can warn when the saved map was made for a different driver/build.
+  var g_driver = '', g_version = '';
+
+  function show(id, msg, isError) {
+    var el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status visible' + (isError ? ' error' : '');
+  }
+
+  document.getElementById('showPass').addEventListener('change', function () {
+    document.getElementById('pass').type = this.checked ? 'text' : 'password';
+  });
+
+  // Wi-Fi section adapts to the connection mode: in STA the device is already
+  // online, so the form is collapsed behind a "Change network" button to stop
+  // non-technical users from needlessly re-entering credentials. In AP (setup)
+  // mode — or if state is unavailable — the form is shown outright.
+  function applyWifiMode(mode) {
+    var form = document.getElementById('wifiForm');
+    var note = document.getElementById('wifiNote');
+    var chg  = document.getElementById('wifiChangeBtn');
+    if (mode === 'sta') {
+      form.style.display = 'none';
+      chg.style.display  = '';
+      note.textContent = '✓ Connected to Wi-Fi — nothing to do here. ' +
+                         'Use this only to switch to a different network.';
+      note.className = 'wifi-ok';
+      note.style.display = '';
+    } else {
+      form.style.display = '';
+      chg.style.display  = 'none';
+      if (mode === 'ap') {
+        note.textContent = 'Setup mode — enter your home Wi-Fi to connect the device.';
+        note.className = 'hint';
+        note.style.display = '';
+      } else {
+        note.style.display = 'none';   // unknown/offline: just show the form
+      }
+    }
+  }
+
+  document.getElementById('wifiChangeBtn').addEventListener('click', function () {
+    document.getElementById('wifiForm').style.display = '';
+    this.style.display = 'none';
+    var note = document.getElementById('wifiNote');
+    note.textContent = 'Switching network — enter the new Wi-Fi below; ' +
+                       'the device will leave the current one.';
+    note.className = 'hint';
+  });
+
+  // Firmware version — confirms what is flashed; also drives the Wi-Fi mode UI.
+  fetch('/api/state', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (s) {
+      if (s && s.version) {
+        g_version = s.version;
+        // Append the web-UI hash this firmware expects, so the same hash shows in
+        // the "Web UI files" line below — a match means the web UI is in sync.
+        var eh = (s.www_expected || '').split(/\s+/)[0].slice(0, 8);
+        document.getElementById('otaVer').textContent =
+          'Firmware ' + s.version + (eh ? ' · ' + eh : '');
+      }
+      showWwwState(s);
+      applyWifiMode(s && s.wifi_mode);
+    })
+    .catch(function () { applyWifiMode(null); });
+
+  // Toggle the "out of date" warning and show both hashes so a mismatch is
+  // visible: www_version is what sits on the www partition, www_expected is what
+  // this firmware was built against. They differ after an app-only OTA.
+  function showWwwState(s) {
+    // www_version.txt is "<hash> <git-describe> <date> <time> UTC"; the middle
+    // git-describe drifts from the firmware version and only confuses, so show
+    // just the build time + short hash.
+    var verEl = document.getElementById('wwwVer');
+    if (verEl) {
+      var raw = (s && s.www_version) || '';
+      var p = raw.split(/\s+/);
+      verEl.textContent = 'Web UI built ' + (p.length >= 4
+        ? p[p.length - 3] + ' ' + p[p.length - 2].slice(0, 5) + ' UTC · ' + p[0].slice(0, 8)
+        : (raw || 'unknown'));
+    }
+    document.getElementById('wwwWarn').classList.toggle('visible', !!(s && s.www_outdated));
+    var box = document.getElementById('wwwHashes');
+    if (s && s.www_outdated) {
+      box.textContent = 'On device: ' + (s.www_version || '(none)') +
+                        '  •  Firmware expects: ' + (s.www_expected || '(unknown)');
+    } else {
+      box.textContent = '';
+    }
+  }
+
+  // ── Wi-Fi ──────────────────────────────────────────────────────────────────
+  document.getElementById('wifiForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var ssid = document.getElementById('ssid').value.trim();
+    var pass = document.getElementById('pass').value;
+    if (!ssid) { show('wifiStatus', 'Please enter the network name (SSID).', true); return; }
+    show('wifiStatus', 'Saving settings…', false);
+    try {
+      var r = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wifi: { ssid: ssid, password: pass } })
+      });
+      if (!r.ok) throw new Error('Server returned ' + r.status);
+      show('wifiStatus', 'Settings saved. Restarting device…', false);
+      try { await fetch('/api/restart', { method: 'POST' }); } catch (_) {}
+    } catch (err) {
+      show('wifiStatus', 'Error: ' + err.message, true);
+    }
+  });
+
+  // ── UI upload ────────────────────────────────────────────────────────────--
+  document.getElementById('uploadBtn').addEventListener('click', async function () {
+    var input = document.getElementById('files');
+    var btn   = document.getElementById('uploadBtn');
+    var list  = input.files;
+    if (!list.length) { show('uploadStatus', 'Select one or more files first.', true); return; }
+    for (var j = 0; j < list.length; j++) {
+      if (/\.bin$/i.test(list[j].name)) {
+        show('uploadStatus', list[j].name + ' looks like firmware (.bin). ' +
+             'Use the “Firmware update (OTA)” section below.', true);
+        return;
+      }
+    }
+    btn.disabled = true;
+    var ok = 0, fail = 0;
+    for (var i = 0; i < list.length; i++) {
+      var file = list[i];
+      show('uploadStatus', 'Uploading ' + file.name + ' (' + (i + 1) + '/' + list.length + ')…', false);
+      try {
+        var buf = await file.arrayBuffer();
+        var r = await fetch('/api/files/' + encodeURIComponent(file.name), {
+          method: 'PUT', body: buf
+        });
+        if (!r.ok) throw new Error(r.status + '');
+        ok++;
+      } catch (err) {
+        fail++;
+        console.error('Upload failed for', file.name, err);
+      }
+    }
+    btn.disabled = false;
+    show('uploadStatus', 'Done: ' + ok + ' uploaded' + (fail ? ', ' + fail + ' failed' : '') +
+         '. Reload the page to use the new UI.', fail > 0);
+    // Re-check whether the web UI now matches the firmware (the upload may have
+    // refreshed www_version.txt), so the warning clears without a manual reload.
+    try {
+      var st = await (await fetch('/api/state', { cache: 'no-store' })).json();
+      showWwwState(st);
+    } catch (_) { /* leave the banner as-is on error */ }
+  });
+
+  // ── Firmware OTA ─────────────────────────────────────────────────────────--
+  // Recovery-friendly: this page is baked into the app, so OTA works even with a
+  // wiped www partition. Mirrors Settings → Tools — streams the .bin to /api/ota,
+  // which writes the inactive slot and reboots. /api/ota returns 501 on 8MB
+  // single-slot builds, surfaced here via the plain-text error body.
+  document.getElementById('otaBtn').addEventListener('click', function () {
+    var btn  = document.getElementById('otaBtn');
+    var prog = document.getElementById('otaProgress');
+    var file = document.getElementById('otaFile').files[0];
+    if (!file) { show('otaStatus', 'Pick a .bin firmware image first.', true); return; }
+    if (!/\.bin$/i.test(file.name)) { show('otaStatus', 'Expected a .bin image.', true); return; }
+    if (!confirm('Flash "' + file.name + '" (' + (file.size / 1048576).toFixed(2) +
+                 ' MB)? The device will reboot when done.')) return;
+
+    btn.disabled = true;
+    prog.style.display = '';
+    prog.value = 0;
+    show('otaStatus', 'Uploading…', false);
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/ota', true);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.upload.onprogress = function (e) {
+      if (e.lengthComputable) prog.value = Math.round((e.loaded / e.total) * 100);
+    };
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        prog.value = 100;
+        show('otaStatus', '✓ Installed. Device is rebooting into the new firmware…', false);
+      } else {
+        show('otaStatus', xhr.responseText || ('HTTP ' + xhr.status), true);
+        btn.disabled = false;
+      }
+    };
+    xhr.onerror = function () {
+      // A connection drop right after the response is the expected reboot.
+      if (prog.value >= 100) show('otaStatus', '✓ Uploaded. Device is rebooting…', false);
+      else { show('otaStatus', 'Upload failed (connection lost).', true); btn.disabled = false; }
+    };
+    xhr.send(file);
+  });
+
+  // ── Hardware pins ──────────────────────────────────────────────────────────
+  // GPIO sanity rules — ported from the pin configurator (ESP32-S3, octal PSRAM).
+  var RESERVED = {};           // 26..37 = SPI flash / octal PSRAM (hard avoid)
+  for (var rp = 26; rp <= 37; rp++) RESERVED[rp] = 'flash/octal-PSRAM';
+  var STRAPPING = { 0: 1, 3: 1, 45: 1, 46: 1 };   // read at reset — risky
+  var USB_PINS  = { 19: 1, 20: 1 };               // native USB D-/D+
+
+  // → { level: 'ok'|'warn'|'bad', msg }. -1 / blank = disabled (always ok).
+  function pinValidity(v) {
+    if (v === -1 || v === '' || v === null || isNaN(v)) return { level: 'ok' };
+    var n = +v;
+    if (!Number.isInteger(n) || n < -1 || n > 48 || (n >= 22 && n <= 25))
+      return { level: 'bad', msg: 'not a valid S3 GPIO' };
+    if (RESERVED[n])  return { level: 'bad',  msg: RESERVED[n] };
+    if (STRAPPING[n]) return { level: 'warn', msg: 'strapping pin' };
+    if (USB_PINS[n])  return { level: 'warn', msg: 'native-USB pin' };
+    return { level: 'ok' };
+  }
+
+  var pinKeys = [];
+
+  // Pins physically broken out on the PCB — rendered as a live map: a number
+  // lights up (.used) as soon as any input claims it, otherwise it stays muted.
+  var ALLOWED = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,
+                 38,39,40,41,42,47,48];
+  (function renderAllowed() {
+    var box = document.getElementById('allowedPins');
+    if (!box) return;
+    ALLOWED.forEach(function (n) {
+      var s = document.createElement('span');
+      s.className = 'ap'; s.id = 'ap_' + n; s.textContent = n;
+      box.appendChild(s);
+    });
+  }());
+
+  // Recompute validity + duplicates across all inputs, paint them, fill notes,
+  // refresh the conflict banner and gate the Save button on hard issues.
+  function validatePins() {
+    // Map pin value (>=0) → list of owning keys, for duplicate detection.
+    var owners = {};
+    pinKeys.forEach(function (k) {
+      var n = parseInt(document.getElementById('pin_' + k).value, 10);
+      if (isNaN(n) || n < 0) return;
+      (owners[n] = owners[n] || []).push(k);
+    });
+
+    // Live "allowed pins" map: highlight every broken-out pin that's now in use.
+    ALLOWED.forEach(function (n) {
+      var el = document.getElementById('ap_' + n);
+      if (el) el.classList.toggle('used', !!owners[n]);
+    });
+
+    var hardBad = [];
+    pinKeys.forEach(function (k) {
+      var inp  = document.getElementById('pin_' + k);
+      var note = document.getElementById('note_' + k);
+      var n    = parseInt(inp.value, 10);
+      var v    = pinValidity(inp.value === '' ? '' : n);
+      var dup  = !isNaN(n) && n >= 0 && owners[n] && owners[n].length > 1;
+
+      inp.classList.toggle('bad',  v.level === 'bad' || dup);
+      inp.classList.toggle('warn', v.level === 'warn' && !dup);
+
+      if (dup) {
+        note.textContent = 'shared with: ' +
+          owners[n].filter(function (o) { return o !== k; }).join(', ');
+        note.classList.remove('w', 'd');
+      } else if (v.msg) {
+        note.textContent = v.msg;
+        note.classList.toggle('w', v.level === 'warn');
+        note.classList.remove('d');
+      } else {
+        // No issue → fall back to the signal description (muted).
+        note.textContent = PIN_INFO[k] || '';
+        note.classList.remove('w');
+        note.classList.add('d');
+      }
+    });
+
+    Object.keys(owners).forEach(function (n) {
+      if (owners[n].length > 1)
+        hardBad.push('GPIO <b>' + n + '</b> used by ' + owners[n].join(' + '));
+    });
+    Object.keys(owners).forEach(function (n) {
+      var v = pinValidity(+n);
+      if (v.level === 'bad')
+        hardBad.push('GPIO <b>' + n + '</b> (' + owners[n].join(', ') + ') — ' + v.msg);
+    });
+
+    var cb = document.getElementById('pinsConflicts');
+    if (hardBad.length) {
+      cb.innerHTML = '<b>Fix before saving:</b><br>' + hardBad.join('<br>');
+      cb.classList.add('visible');
+    } else {
+      cb.classList.remove('visible');
+    }
+    document.getElementById('pinsBtn').disabled = hardBad.length > 0;
+  }
+
+  // Per-pin one-liners — what each signal does, shown under its input.
+  var PIN_INFO = {
+    lcd_mosi: 'SPI data to panel (MOSI / SDA)',
+    lcd_clk:  'SPI clock (SCK)',
+    lcd_cs:   'Chip-select',
+    lcd_dc:   'Data / command select',
+    lcd_rst:  'Panel reset',
+    lcd_led:  'Backlight enable (-1 = none)',
+    qspi_cs:  'QSPI chip-select',
+    qspi_clk: 'QSPI clock',
+    qspi_d0:  'QSPI data line 0',
+    qspi_d1:  'QSPI data line 1',
+    qspi_d2:  'QSPI data line 2',
+    qspi_d3:  'QSPI data line 3',
+    qspi_rst: 'Panel reset',
+    ctp_scl:  'I2C clock to touch controller',
+    ctp_sda:  'I2C data to touch controller',
+    ctp_int:  'Touch interrupt (-1 = polled)',
+    ctp_rst:  'Touch reset (-1 = none)',
+    tp_clk:   'XPT2046 SPI clock (-1 = share LCD bus)',
+    tp_mosi:  'XPT2046 SPI MOSI (-1 = share LCD bus)',
+    tp_miso:  'XPT2046 SPI MISO',
+    tp_cs:    'XPT2046 chip-select',
+    tp_irq:   'XPT2046 PENIRQ (-1 = polled)',
+    sd_clk:   'SDMMC clock',
+    sd_cmd:   'SDMMC command',
+    sd_d0:    'SDMMC data 0 (1-bit mode)',
+    sd_cd:    'Card-detect (-1 = none)',
+    i2s_data: 'Audio data to DAC (DIN)',
+    i2s_bck:  'Bit clock (BCK)',
+    i2s_lck:  'Word / LR clock (LRCK)',
+    enc_clk:  'Rotary phase A (CLK)',
+    enc_dt:   'Rotary phase B (DT)',
+    enc_btn:  'Push-button',
+    buzzer:   'Piezo buzzer (-1 = disabled)',
+    bt_pin:   'Power / enable to BT module',
+    bt_tx:    'UART TX -> module RX',
+    bt_rx:    'UART RX <- module TX'
+  };
+
+  // Display order + grouping. /api/pins always returns every key (-1 = unused),
+  // so sections are hidden by the "driver"/"touch" fields instead: the LCD and
+  // touch groups the compiled binary can't use are skipped. Unknown (future)
+  // keys fall through to an "Other" section so nothing ever goes missing.
+  var PIN_SECTIONS = [
+    { title: 'SPI LCD',          keys: ['lcd_mosi','lcd_clk','lcd_cs','lcd_dc','lcd_rst','lcd_led'] },
+    { title: 'QSPI LCD',         keys: ['qspi_cs','qspi_clk','qspi_d0','qspi_d1','qspi_d2','qspi_d3','qspi_rst'] },
+    { title: 'Touch (I2C)',      keys: ['ctp_scl','ctp_sda','ctp_int','ctp_rst'] },
+    { title: 'Touch (SPI/XPT2046)', keys: ['tp_clk','tp_mosi','tp_miso','tp_cs','tp_irq'],
+      note: 'To <b>share the LCD SPI bus</b>, set <code>tp_clk</code> and <code>tp_mosi</code> ' +
+            'to <code>-1</code> — only <code>tp_miso</code>, <code>tp_cs</code> and ' +
+            '<code>tp_irq</code> are then needed. For a <b>dedicated SPI3 bus</b>, give ' +
+            '<code>tp_clk</code>/<code>tp_mosi</code> their own free GPIOs — not the same ' +
+            'pins as the LCD.' },
+    { title: 'SD card (SDMMC)',  keys: ['sd_clk','sd_cmd','sd_d0','sd_cd'] },
+    { title: 'Audio (I2S DAC)',  keys: ['i2s_data','i2s_bck','i2s_lck'] },
+    { title: 'Rotary encoder',   keys: ['enc_clk','enc_dt','enc_btn'] },
+    { title: 'Buzzer',           keys: ['buzzer'] },
+    { title: 'Bluetooth module', keys: ['bt_pin','bt_tx','bt_rx'] }
+  ];
+
+  // Filled from /api/pins; renderPins() re-runs on the show-all toggle.
+  var g_pinsData = null;
+  var g_showAll = new URLSearchParams(location.search).has('all');
+
+  function renderPins() {
+    var d = g_pinsData;
+    var grid = document.getElementById('pinsGrid');
+
+    // Keep unsaved edits across a toggle: fold current input values back into
+    // the data before rebuilding the grid.
+    pinKeys.forEach(function (k) {
+      var inp = document.getElementById('pin_' + k);
+      if (inp) {
+        var v = parseInt(inp.value, 10);
+        if (!isNaN(v)) d.pins[k] = v;
+      }
+    });
+    pinKeys = [];
+    grid.innerHTML = '';
+
+    function addRow(k, unused) {
+      pinKeys.push(k);
+      var row = document.createElement('div');
+      row.className = 'pin-row' + (unused ? ' pin-unused' : '');
+      var lab = document.createElement('label');
+      lab.textContent = k;
+      lab.setAttribute('for', 'pin_' + k);
+      var inp = document.createElement('input');
+      inp.type = 'number'; inp.min = '-1'; inp.max = '48'; inp.step = '1';
+      inp.id = 'pin_' + k; inp.value = d.pins[k];
+      inp.addEventListener('input', validatePins);
+      var note = document.createElement('span');
+      note.className = 'pin-note'; note.id = 'note_' + k;
+      row.appendChild(lab); row.appendChild(inp); row.appendChild(note);
+      grid.appendChild(row);
+    }
+
+    function addSection(title, keys, note, unused) {
+      var present = keys.filter(function (k) { return k in d.pins; });
+      if (!present.length) return;
+      var h = document.createElement('div');
+      h.className = 'pin-section' + (unused ? ' pin-unused' : '');
+      h.textContent = title;
+      if (unused) {
+        var t = document.createElement('span');
+        t.className = 'tag';
+        t.textContent = 'not used by this firmware';
+        h.appendChild(t);
+      }
+      grid.appendChild(h);
+      if (note) {
+        var n = document.createElement('div');
+        n.className = 'pin-section-note' + (unused ? ' pin-unused' : '');
+        n.innerHTML = note;
+        grid.appendChild(n);
+      }
+      present.forEach(function (k) { addRow(k, unused); });
+    }
+
+    // Sections irrelevant to this binary's compiled drivers: hidden by default,
+    // or rendered dimmed ("not used by this firmware") when the show-all toggle
+    // (or opening /setup?all=1) is on — for eyeballing every section while
+    // testing a single variant. Hidden keys still count as "placed" so they
+    // don't resurface under Other. Firmware predating the "touch" field shows
+    // both touch sections.
+    var unused = {};
+    if (d.touch === 'XPT2046') {
+      unused['Touch (I2C)'] = 1;
+    } else if (d.touch === 'FT6336U' || d.touch === 'CST816D') {
+      unused['Touch (SPI/XPT2046)'] = 1;
+    } else if (d.touch === 'NONE') {
+      unused['Touch (I2C)'] = 1;
+      unused['Touch (SPI/XPT2046)'] = 1;
+    }
+    if (d.driver === 'CO5300') {
+      unused['SPI LCD'] = 1;
+    } else if (['ILI9341','ST7789V','ST7796','ILI9488','SSD1322'].indexOf(d.driver) >= 0) {
+      unused['QSPI LCD'] = 1;
+    }
+
+    var placed = {};
+    PIN_SECTIONS.forEach(function (s) {
+      s.keys.forEach(function (k) { placed[k] = 1; });
+      if (unused[s.title] && !g_showAll) return;
+      addSection(s.title, s.keys, s.note, !!unused[s.title]);
+    });
+    // Any key the firmware exposes that we don't know about yet.
+    var leftover = Object.keys(d.pins).filter(function (k) { return !placed[k]; });
+    addSection('Other', leftover);
+
+    document.getElementById('pinsShowAllBtn').textContent =
+      g_showAll ? 'Hide unused sections' : 'Show all sections';
+
+    validatePins();   // also enables the button when the loaded map is clean
+  }
+
+  document.getElementById('pinsShowAllBtn').addEventListener('click', function () {
+    g_showAll = !g_showAll;
+    renderPins();
+  });
+
+  fetch('/api/pins', { cache: 'no-store' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      g_pinsData = d;
+      g_driver = d.driver || '';
+      document.getElementById('pinsDriver').textContent =
+        'Display driver in this firmware: ' + (d.driver || '?') +
+        (d.touch ? ' · touch: ' + d.touch : '');
+      document.getElementById('pinsShowAllBtn').style.display = '';
+      renderPins();
+    })
+    .catch(function () {
+      document.getElementById('pinsDriver').textContent = 'Pin config unavailable.';
+    });
+
+  document.getElementById('pinsBtn').addEventListener('click', async function () {
+    var btn = document.getElementById('pinsBtn');
+    var body = {};
+    for (var i = 0; i < pinKeys.length; i++) {
+      var v = parseInt(document.getElementById('pin_' + pinKeys[i]).value, 10);
+      if (!isNaN(v)) body[pinKeys[i]] = v;
+    }
+    btn.disabled = true;
+    show('pinsStatus', 'Saving pins…', false);
+    try {
+      var r = await fetch('/api/pins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) throw new Error('Server returned ' + r.status);
+      show('pinsStatus', 'Pins saved. Power-cycle the device to apply.', false);
+      btn.disabled = false;
+      // A soft restart keeps old GPIO pad state latched, so pin remaps don't
+      // apply reliably — tell the user to fully power-cycle instead.
+      alert('Pins saved.\n\nUnplug and replug the device (full power cycle) to ' +
+            'apply the new pins. A soft restart does not reliably remap GPIO pads.');
+    } catch (err) {
+      btn.disabled = false;
+      show('pinsStatus', 'Error: ' + err.message, true);
+    }
+  });
+
+  document.getElementById('pinsResetBtn').addEventListener('click', async function () {
+    if (!confirm('Reset all pins to the firmware defaults? Your saved pin overrides ' +
+                 'will be cleared (Wi-Fi and other settings are kept).')) return;
+    var btn = document.getElementById('pinsResetBtn');
+    btn.disabled = true;
+    show('pinsStatus', 'Resetting pins…', false);
+    try {
+      var r = await fetch('/api/pins/reset', { method: 'POST' });
+      if (!r.ok) throw new Error('Server returned ' + r.status);
+      show('pinsStatus', 'Pins reset to defaults. Power-cycle the device to apply.', false);
+      btn.disabled = false;
+      alert('Pins reset to defaults.\n\nUnplug and replug the device (full power cycle) ' +
+            'to apply.');
+    } catch (err) {
+      btn.disabled = false;
+      show('pinsStatus', 'Error: ' + err.message, true);
+    }
+  });
+
+  // ── Device settings backup / restore ───────────────────────────────────────
+  // ONE bundle format, shared with the web UI (spiffs_image/www/settings.js,
+  // Settings → System): every .json file on the config partition plus the NVS pin
+  // map, in one file that imports on either page. This page is embedded in the
+  // firmware (it must keep working with a wiped www partition), so it cannot load
+  // settings.js — the two implementations are deliberate duplicates.
+  // CHANGE BOTH, or a backup stops round-tripping.
+  //
+  //   { format:  'atlascube-settings',
+  //     version: 2,
+  //     created: '<ISO>',
+  //     meta:    { app, driver, touch, firmware },
+  //     files:   { '<name>.json': '<raw text>', … },   // config partition
+  //     pins:    { '<key>': <gpio>, … } | null }       // NVS pin map
+  //
+  // Uses only existing endpoints: GET /api/files?root=config lists the config
+  // files and the static handler reads them (it falls back to the config root),
+  // PUT /api/files/<name>?root=config writes them back, GET/POST /api/pins carries
+  // the pin map. No firmware changes.
+  var CFG_BACKUP_MAGIC   = 'atlascube-settings';
+  var CFG_BACKUP_VERSION = 2;
+
+  // Hard GPIO problems in a pin map — invalid/reserved pins and pins claimed by
+  // two signals. Mirrors cfgPinProblems() in settings.js (which inlines the same
+  // pinValidity() rules). [] = clean.
+  function cfgPinProblems(pins) {
+    var bad = [], owners = {};
+    Object.keys(pins).forEach(function (k) {
+      var v = parseInt(pins[k], 10);
+      if (isNaN(v)) return;
+      var pv = pinValidity(v);
+      if (pv.level === 'bad') bad.push(k + '=' + v + ' (' + pv.msg + ')');
+      if (v >= 0) (owners[v] = owners[v] || []).push(k);
+    });
+    Object.keys(owners).forEach(function (n) {
+      if (owners[n].length > 1) bad.push('GPIO ' + n + ' shared by ' + owners[n].join(' + '));
+    });
+    return bad;
+  }
+
+  // Read the whole device config into a v2 bundle. report(msg) gets progress lines.
+  async function cfgBuildBundle(report) {
+    report('Reading config files…');
+    var all = await (await fetch('/api/files?root=config', { cache: 'no-store' })).json();
+    // Only .json config files belong in a backup — skip runtime leftovers like
+    // playlist.csv or update.log that live on the same partition.
+    var list = Array.isArray(all) ? all.filter(function (f) { return /\.json$/i.test(f.name); }) : [];
+    var files = {};
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i].name;
+      report('Reading ' + name + ' (' + (i + 1) + '/' + list.length + ')…');
+      var r = await fetch('/' + encodeURIComponent(name), { cache: 'no-store' });
+      if (!r.ok) throw new Error('read ' + name + ' → HTTP ' + r.status);
+      files[name] = await r.text();
+    }
+
+    // Pin map + hardware identity. Best-effort: firmware without /api/pins still
+    // yields a usable files-only bundle.
+    var pins = null, driver = '', touch = '';
+    try {
+      report('Reading pin map…');
+      var pr = await fetch('/api/pins', { cache: 'no-store' });
+      if (pr.ok) {
+        var pd = await pr.json();
+        if (pd && typeof pd.pins === 'object') {
+          pins   = pd.pins;
+          driver = pd.driver || '';
+          touch  = pd.touch  || '';
+        }
+      }
+    } catch (_) { /* bundle the files without the pin map */ }
+
+    if (!list.length && !pins) throw new Error('nothing to export');
+
+    return {
+      format:  CFG_BACKUP_MAGIC,
+      version: CFG_BACKUP_VERSION,
+      created: new Date().toISOString(),
+      meta:    { app: 'AtlasCube', driver: driver, touch: touch, firmware: g_version },
+      files:   files,
+      pins:    pins
+    };
+  }
+
+  // Write a v2 bundle back to the device. Returns { fileOk, fileFail, pins } so the
+  // caller can word the "restart" vs "power-cycle" advice. Throws on a bad bundle.
+  async function cfgApplyBundle(bundle, report) {
+    if (!bundle || typeof bundle !== 'object' || bundle.format !== CFG_BACKUP_MAGIC) {
+      throw new Error('not an AtlasCube settings backup');
+    }
+    if (bundle.version !== CFG_BACKUP_VERSION) {
+      throw new Error('backup version ' + bundle.version + ' — this firmware expects ' +
+                      CFG_BACKUP_VERSION);
+    }
+
+    // Same .json-only rule as the export: never restore playlist.csv or update.log.
+    var names = Object.keys(bundle.files || {}).filter(function (n) { return /\.json$/i.test(n); });
+    var pins  = (bundle.pins && typeof bundle.pins === 'object') ? bundle.pins : null;
+    if (!names.length && !pins) throw new Error('nothing to apply in the file');
+
+    // A pin map made for a different display driver is the one mismatch that can
+    // leave the device with a blank screen — ask before applying it.
+    if (pins) {
+      var from = (bundle.meta && bundle.meta.driver) || '';
+      if (from && g_driver && from !== g_driver &&
+          !confirm('This backup was made for driver "' + from + '", but this firmware ' +
+                   'uses "' + g_driver + '".\n\nImport anyway?')) {
+        throw new Error('cancelled');
+      }
+      // Hard-validate before touching the device: a bad map blanks the display
+      // until the next power-cycle + a fix in the grid below.
+      var bad = cfgPinProblems(pins);
+      if (bad.length) throw new Error('fix the pin map in the file first — ' + bad.join('; '));
+    }
+
+    var fileOk = 0, fileFail = 0;
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      report('Restoring ' + name + ' (' + (i + 1) + '/' + names.length + ')…');
+      try {
+        var r = await fetch('/api/files/' + encodeURIComponent(name) + '?root=config',
+                            { method: 'PUT', body: bundle.files[name] });
+        if (r.ok) fileOk++; else fileFail++;
+      } catch (_) { fileFail++; }
+    }
+
+    var pinsApplied = false;
+    if (pins) {
+      report('Restoring pin map…');
+      var body = {};
+      Object.keys(pins).forEach(function (k) {
+        var v = parseInt(pins[k], 10);
+        if (!isNaN(v)) body[k] = v;
+      });
+      var r2 = await fetch('/api/pins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r2.ok) throw new Error('pin map save failed (HTTP ' + r2.status + ')');
+      // Mirror the saved values into the pins grid below so it matches NVS.
+      Object.keys(body).forEach(function (k) {
+        var inp = document.getElementById('pin_' + k);
+        if (inp) inp.value = body[k];
+      });
+      if (pinKeys.length) validatePins();
+      pinsApplied = true;
+    }
+    return { fileOk: fileOk, fileFail: fileFail, pins: pinsApplied };
+  }
+
+  document.getElementById('cfgExportBtn').addEventListener('click', async function () {
+    var btn = this;
+    btn.disabled = true;
+    try {
+      var bundle = await cfgBuildBundle(function (m) { show('cfgStatus', m, false); });
+      var blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      var url  = URL.createObjectURL(blob);
+      var stamp = bundle.created.slice(0, 19).replace(/[:T]/g, '-');
+      var a = document.createElement('a');
+      a.href = url; a.download = 'atlascube-settings-' + stamp + '.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      var n = Object.keys(bundle.files).length;
+      show('cfgStatus', '✓ Exported ' + n + ' file' + (n === 1 ? '' : 's') +
+           (bundle.pins ? ' + pin map.' : ' — pin map unavailable, files only.'),
+           !bundle.pins);
+    } catch (err) {
+      show('cfgStatus', 'Export failed: ' + err.message, true);
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById('cfgImportBtn').addEventListener('click', function () {
+    document.getElementById('cfgImportFile').click();
+  });
+  document.getElementById('cfgImportFile').addEventListener('change', function () {
+    var input = this;
+    var file  = input.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = async function () {
+      input.value = '';   // allow re-selecting the same file later
+      var bundle;
+      try { bundle = JSON.parse(reader.result); }
+      catch (e) { show('cfgStatus', 'Import failed: not valid JSON.', true); return; }
+
+      try {
+        var res = await cfgApplyBundle(bundle, function (m) { show('cfgStatus', m, false); });
+        // A soft restart keeps GPIO pads latched, so a restored pin map only takes
+        // effect after a full power cycle.
+        show('cfgStatus', '✓ Imported ' + res.fileOk + ' file' + (res.fileOk === 1 ? '' : 's') +
+             (res.fileFail ? ', ' + res.fileFail + ' failed' : '') +
+             (res.pins ? ' + pin map' : '') + '. ' +
+             (res.pins ? 'Unplug and replug the device (full power cycle) to apply.'
+                       : 'Restart the device to apply.'),
+             res.fileFail > 0);
+        alert('Import done.\n\n' +
+              (res.pins ? 'Unplug and replug the device (full power cycle) to apply the '
+                        : 'Restart the device to apply the ') +
+              'imported settings' + (res.pins ? ' and pins' : '') + '. Changes made on the ' +
+              'device before that may overwrite the import.');
+      } catch (err) {
+        show('cfgStatus', 'Import failed: ' + err.message, true);
+      }
+    };
+    reader.readAsText(file);
+  });
+}());
+</script>
+</body>
+</html>
