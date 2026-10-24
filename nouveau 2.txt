@@ -1,0 +1,16 @@
+alias: Appliquer mode chauffage global
+mode: single
+sequence:
+		- variables:
+						mode: "{{ states('input_select.mode_chauffage_global') }}"
+						radiateurs:
+								- input_select.fgr222_fil_pilote_sam1
+								- input_select.fgr222_fil_pilote_salon1
+								- input_select.fgr222_fil_pilote_sam2
+								- input_select.fil_pilote_entree
+								- input_select.fil_pilote_chambre_parents
+		- service: input_select.select_option
+				target:
+						entity_id: "{{ radiateurs }}"
+				data:
+						option: "{{ mode }}"
