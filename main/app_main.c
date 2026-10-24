@@ -38,6 +38,18 @@ static const char *TAG = "MAIN";
 void init_fs(void);
 void system_monitor_task(void *pv);
 
+#if defined(HAS_SD_CARD)
+static void sd_boot_probe_task(void *arg)
+{
+    (void)arg;
+    if (sdcard_init() == ESP_OK)
+        ESP_LOGI(TAG, "SD mounted");
+    else
+        ESP_LOGW(TAG, "SD not mounted — FAT32 card on CS10 MOSI11 SCK12 MISO13");
+    vTaskDelete(NULL);
+}
+#endif
+
 void app_main(void)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -51,9 +63,9 @@ void app_main(void)
     board_pins_load();   // resolve runtime pin map (defaults + NVS overrides) before any peripheral init
     board_amp_mute(true);  // keep MAX98357A quiet until the I2S clock is running
     init_fs();
-    // SD is mounted lazily on first use (sdcard_init from the SD player / file
-    // manager / photo screensaver / voice events), not at boot — a radio-only
-    // session never pays the SDMMC+FATFS internal-RAM cost.
+    // SD is mounted on a background task after the UI is up (sd_boot_probe_task).
+    // The Mini encoder opens the folder list on a short press, which must not
+    // wait on the SPI probe.
 
     // mqtt config must load after fs is mounted; before http_server starts
     // so /api/mqtt GET sees real data. mqtt_svc_init() also calls load again
@@ -71,6 +83,9 @@ void app_main(void)
     encoder_init();
     touch_init();          // registers LVGL indev — must run before display_start()
     display_start();       // starts lvgl_task; no LVGL state may be touched from other tasks afterwards
+#if defined(HAS_SD_CARD)
+    xTaskCreate(sd_boot_probe_task, "sd_probe", 3072, NULL, 3, NULL);
+#endif
     dim_schedule_init();   // periodic check of dim/bright window; no-op until NTP syncs
 
     // ── WiFi ──────────────────────────────────────────────────────────────────

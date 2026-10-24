@@ -1,6 +1,7 @@
 #include "audio_file_player.h"
 #include "audio_engine.h"
 #include "audio_net_player.h"
+#include "fatfs_stream.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <stdint.h>
@@ -75,6 +76,36 @@ static void on_file_end(void)
 void audio_file_player_init(void)
 {
     audio_engine_set_file_end_cb(on_file_end);
+}
+
+
+// The prebuilt engine creates the fatfs reader with ADF defaults (8 KB ring,
+// 4 KB read). HTTP gets 256 KB because Wi-Fi jitters; SPI microSD on Dupont
+// wires jitters the same way (CRC retry, Wi-Fi preemption on core 0), so an
+// 8 KB file ring underruns and the I2S tail clicks. --wrap fatfs_stream_init
+// (see this component's CMakeLists) lifts the sizes without touching the .a.
+// WAV at 44100/16/2 is 176 KB/s, so 128 KB is ~0.7 s of PCM slack; MP3 has more.
+#define FILE_STREAM_RB_MIN   (128 * 1024)
+#define FILE_STREAM_BUF_MIN  (16 * 1024)
+
+audio_element_handle_t __real_fatfs_stream_init(fatfs_stream_cfg_t *config);
+
+audio_element_handle_t __wrap_fatfs_stream_init(fatfs_stream_cfg_t *config)
+{
+    fatfs_stream_cfg_t cfg = *config;
+    if (cfg.out_rb_size < FILE_STREAM_RB_MIN) {
+        cfg.out_rb_size = FILE_STREAM_RB_MIN;
+    }
+    if (cfg.buf_sz < FILE_STREAM_BUF_MIN) {
+        cfg.buf_sz = FILE_STREAM_BUF_MIN;
+    }
+    if (cfg.task_prio < 5) {
+        cfg.task_prio = 5;
+    }
+    cfg.ext_stack = false;
+    ESP_LOGI(TAG, "fatfs stream rb=%d buf=%d prio=%d",
+             cfg.out_rb_size, cfg.buf_sz, cfg.task_prio);
+    return __real_fatfs_stream_init(&cfg);
 }
 
 

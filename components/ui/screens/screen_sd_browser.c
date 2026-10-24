@@ -8,6 +8,8 @@
 #include "app_state.h"
 #include "theme.h"
 #include "ui_profile.h"
+#include "ui_nav.h"
+#include "defines.h"
 #include "fonts/ui_fonts.h"
 #include "lvgl.h"
 #include "esp_log.h"
@@ -322,6 +324,10 @@ static void sd_browser_on_input(ui_input_t input)
             activate(ui_list_get_selected());
             break;
         case UI_INPUT_ENCODER_LONG_PRESS:
+#if defined(BOARD_S3_SUPERMINI)
+            ui_nav_ring_next(SCREEN_SD);
+            break;
+#endif
         case UI_INPUT_SWIPE_RIGHT:
         case UI_INPUT_SWIPE_LEFT:
             ui_navigate(s_return);

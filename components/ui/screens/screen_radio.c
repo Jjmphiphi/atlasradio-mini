@@ -349,10 +349,19 @@ static void radio_on_input(ui_input_t input)
         }
 
         case UI_INPUT_ENCODER_PRESS:
+#if defined(BOARD_S3_SUPERMINI)
+            screen_playlist_set_return(SCREEN_RADIO);
+            ui_navigate(SCREEN_PLAYLIST);
+            break;
+#endif
         case UI_INPUT_SWIPE_RIGHT:
             ui_nav_ring_next(SCREEN_RADIO);
             break;
         case UI_INPUT_ENCODER_LONG_PRESS:
+#if defined(BOARD_S3_SUPERMINI)
+            ui_nav_ring_next(SCREEN_RADIO);
+            break;
+#endif
             screen_playlist_set_return(SCREEN_RADIO);
             ui_navigate(SCREEN_PLAYLIST);
             break;

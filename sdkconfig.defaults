@@ -183,6 +183,13 @@ CONFIG_LV_USE_FONT_PLACEHOLDER=n
 # audio/http task stacks; ~(MAX_LFN+1)*2 B malloc'd per directory op, freed after.
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+# Serialize FATFS across the file reader, ID3/duration probes, and any browse
+# that overlaps playback. 0 (IDF default) is not thread-safe and a concurrent
+# opendir/fopen during SPI playback shows up as clicks, not a clean error.
+CONFIG_FATFS_FS_LOCK=8
+# Cluster maps in PSRAM (ALLOC_PREFER_EXTRAM) so VBR MP3 ID3 skips don't walk
+# the FAT on every lseek and stall the 8–128 KB file ring.
+CONFIG_FATFS_USE_FASTSEEK=y
 
 # Core 1 is the compute core by design (aac/rsp/dsp decode tasks + LVGL, all
 # prio 5): a 48 kHz stream (e.g. HLS video audio) needs a real 48000->44100

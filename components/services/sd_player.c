@@ -266,7 +266,7 @@ const char *sd_player_track(int i)      { return (i >= 0 && i < s_count) ? s_que
 int  sd_player_folder_count(void)       { return s_folder_count; }
 const char *sd_player_folder(int i)     { return (i >= 0 && i < s_folder_count) ? s_folders[i] : NULL; }
 const char *sd_player_dir(void)         { return s_dir; }
-const char *sd_player_root(void)        { return SD_MUSIC_DIR; }
+const char *sd_player_root(void)        { return SD_MOUNT_POINT; }
 
 
 // ── Playback ─────────────────────────────────────────────────────────────────

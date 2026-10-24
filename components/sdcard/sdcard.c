@@ -10,6 +10,7 @@
 #ifdef HAS_SD_SPI
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
+#include "driver/gpio.h"
 #endif
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -46,21 +47,28 @@ static esp_err_t do_mount(bool format_if_mount_failed)
     esp_vfs_fat_sdmmc_mount_config_t mount_config = fat_config(format_if_mount_failed);
 
 #ifdef HAS_SD_SPI
-    // SPI microSD on SPI2. OLED is I2C, so SPI2 is free. Fall back 20 → 10 → 4 MHz
-    // because cheap Super Mini clones + long Dupont wires often fail at 20 MHz.
+    // SPI microSD on SPI2. OLED is I2C, so SPI2 is free.
+    // Prefer 10 MHz: a mount that *succeeds* at 20 MHz on Dupont wires still
+    // CRC-retries mid-track, which sounds like intermittent crackle. 10 MHz is
+    // ~1.25 MB/s, well above WAV 176 KB/s. 4 MHz is the last-chance fallback.
     spi_bus_config_t bus_cfg = {
         .mosi_io_num = g_pins.sd_mosi,
         .miso_io_num = g_pins.sd_miso,
         .sclk_io_num = g_pins.sd_sck,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = 4096,
+        .max_transfer_sz = 16384,
     };
     esp_err_t err = spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGW(TAG, "SPI2 init failed (%s)", esp_err_to_name(err));
         return err;
     }
+
+    // DO (MISO) and CS need a pull-up in SPI mode; jumper-wire modules often
+    // omit the 10k. Weak internal pulls are enough at 10 MHz.
+    gpio_set_pull_mode(g_pins.sd_miso, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(g_pins.sd_cs, GPIO_PULLUP_ONLY);
 
     sdmmc_host_t host = SDSPI_HOST_DEFAULT();
     host.slot = SPI2_HOST;
@@ -69,9 +77,9 @@ static esp_err_t do_mount(bool format_if_mount_failed)
     slot_config.gpio_cs = g_pins.sd_cs;
     slot_config.host_id = SPI2_HOST;
 
-    static const int k_khz[] = { 20000, 10000, 4000 };
+    static const int k_khz[] = { 10000, 4000 };
     err = ESP_FAIL;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         host.max_freq_khz = k_khz[i];
         err = esp_vfs_fat_sdspi_mount(SD_MOUNT_POINT, &host, &slot_config,
                                       &mount_config, &s_card);

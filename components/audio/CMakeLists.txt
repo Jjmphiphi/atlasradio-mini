@@ -33,3 +33,9 @@ add_prebuilt_library(audio_engine_prebuilt "${CMAKE_SOURCE_DIR}/lib/libaudio_eng
                      PRIV_REQUIRES audio_pipeline audio_stream esp-adf-libs)
 target_link_libraries(${COMPONENT_LIB} PRIVATE
     "-Wl,--whole-archive" audio_engine_prebuilt audio_dsp_prebuilt "-Wl,--no-whole-archive")
+# Intercept ADF fatfs_stream_init so the file reader gets a radio-sized ring
+# (see __wrap_fatfs_stream_init in audio_file_player.c). INTERFACE so the flag
+# reaches the final ELF, not just this archive.
+target_link_libraries(${COMPONENT_LIB} INTERFACE
+    "-Wl,--wrap=fatfs_stream_init"
+    "-Wl,--wrap=lwip_send")

@@ -4,6 +4,9 @@
 #include "app_state.h"
 #include "mqtt_config.h"
 #include "sdcard.h"
+#include "screen_sd_browser.h"
+#include "screen_playlist.h"
+#include "ui_manager.h"
 
 // --------------------------------------------------------------------------
 // Visibility conditions — a ring entry is shown only if its condition (if any)
@@ -41,11 +44,16 @@ typedef struct {
 } nav_ring_entry_t;
 
 static const nav_ring_entry_t s_ring[] = {
-    { SCREEN_HOME,  NULL              },   // always visible — the unified hub
 #if !defined(BOARD_S3_SUPERMINI)
+    { SCREEN_HOME,  NULL              },   // hub / clock
     { SCREEN_BT,    cond_bt_screen    },
 #endif
     { SCREEN_RADIO, cond_radio_screen },
+#if defined(BOARD_S3_SUPERMINI)
+    // Hold walks Radio → playlist → SD folders → Radio. Home is a clock
+    // overlay that does not fit 128×64 in this loop (station + title stack).
+    { SCREEN_PLAYLIST, cond_radio_screen },
+#endif
     { SCREEN_MQTT,  cond_mqtt_enabled },
     { SCREEN_SD,    cond_sd_screen    },
 };
@@ -76,7 +84,22 @@ static void ring_step(ui_screen_id_t from, int dir)
     for (int n = 0; n < RING_LEN; ++n) {
         i = (i + dir + RING_LEN) % RING_LEN;
         if (ring_visible(i)) {
-            settings_set_screen(s_ring[i].id);
+            ui_screen_id_t dest = s_ring[i].id;
+#if defined(BOARD_S3_SUPERMINI)
+            if (dest == SCREEN_PLAYLIST) {
+                screen_playlist_set_return(SCREEN_RADIO);
+                ui_navigate(SCREEN_PLAYLIST);
+                return;
+            }
+#endif
+            settings_set_screen(dest);
+#if defined(BOARD_S3_SUPERMINI)
+            // Landing on SD opens the folder list (SD content), not now-playing.
+            if (dest == SCREEN_SD && sdcard_is_mounted()) {
+                screen_sd_browser_set_return(SCREEN_SD);
+                ui_navigate(SCREEN_SD_BROWSER);
+            }
+#endif
             return;
         }
     }

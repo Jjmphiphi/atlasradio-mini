@@ -345,12 +345,10 @@ static void sd_player_screen_create(lv_obj_t *parent)
     refresh_from_state();
     progress_update();   // set/hide the time row now, before the 1 s tick
 
-    // First time the encoder lands here, actually probe the slot. Without this
-    // the Mini never mounted (splash only mounts a custom logo) and the ring
-    // used to hide SD until a mount existed.
-    if (sdcard_init() != ESP_OK || !sdcard_is_mounted()) {
+    // Do not sdcard_init() here: the mount worker blocks the LVGL task for
+    // seconds, and encoder clicks queued during that freeze leave SD immediately.
+    if (!sdcard_is_mounted())
         show_no_card();
-    }
 
     if (p->sd_show_ctrl_overlay) {
         controls_overlay_create(parent, CTRL_OVL_MODE_SD);
@@ -440,6 +438,16 @@ static void sd_player_on_input(ui_input_t input)
         }
 
         case UI_INPUT_ENCODER_PRESS:
+#if defined(BOARD_S3_SUPERMINI)
+            // Click = open the folder list (the directory). Hold = leave SD.
+            if (sdcard_init() == ESP_OK && sdcard_is_mounted()) {
+                screen_sd_browser_set_return(SCREEN_SD);
+                ui_navigate(SCREEN_SD_BROWSER);
+            } else {
+                show_no_card();
+            }
+            break;
+#endif
         case UI_INPUT_SWIPE_RIGHT:
             ui_nav_ring_next(SCREEN_SD);
             break;
@@ -448,6 +456,10 @@ static void sd_player_on_input(ui_input_t input)
             break;
 
         case UI_INPUT_ENCODER_LONG_PRESS:
+#if defined(BOARD_S3_SUPERMINI)
+            ui_nav_ring_next(SCREEN_SD);
+            break;
+#endif
         case UI_INPUT_SWIPE_UP:
             if (sdcard_init() == ESP_OK && sdcard_is_mounted()) {
                 screen_sd_browser_set_return(SCREEN_SD);

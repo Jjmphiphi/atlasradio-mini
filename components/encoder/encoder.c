@@ -22,10 +22,15 @@ static const char *TAG = "ENCODER";
 #define ENC_TASK_PRIORITY   6       // higher than ui_manager (5), lower than audio
 
 #define DEBOUNCE_BTN_MS     70      // 50 ms between consecutive button events
+#define ENC_CLICK_ROT_GUARD_MS 400  // shaft wobble on a click looks like volume
 
 #define ENC_PULSES_PER_STEP  4   // increase to slow down, decrease to speed up
 
+#if defined(BOARD_S3_SUPERMINI)
+#define LONG_PRESS_MS  400   // circulate Radio / playlist / SD without a long hold
+#else
 #define LONG_PRESS_MS  600
+#endif
 
 // --------------------------------------------------------------------------
 // Internal event type
@@ -104,6 +109,7 @@ static void encoder_task(void *arg)
     enc_raw_evt_t evt;
     int64_t btn_down_ms  = 0;
     int64_t last_down_ms = 0;
+    int64_t rot_guard_until_ms = 0;
     bool    long_fired   = false;
 
     while (1) {
@@ -128,12 +134,14 @@ static void encoder_task(void *arg)
             int64_t now_ms = esp_timer_get_time() / 1000;
             if (now_ms - last_down_ms < DEBOUNCE_BTN_MS) continue;
             last_down_ms = btn_down_ms = now_ms;
+            rot_guard_until_ms = now_ms + ENC_CLICK_ROT_GUARD_MS;
             long_fired   = false;
             continue;
         }
 
         if (evt == ENC_EVT_BTN_UP) {
             last_down_ms = esp_timer_get_time() / 1000;
+            rot_guard_until_ms = last_down_ms + ENC_CLICK_ROT_GUARD_MS;
             if (btn_down_ms == 0) continue;          /* UP without DOWN — ignore */
             if (!long_fired)
                 ui_input_send(UI_INPUT_ENCODER_PRESS); /* short press */
@@ -142,7 +150,17 @@ static void encoder_task(void *arg)
             continue;
         }
 
-        /* Rotation — unchanged */
+        /* Rotation — drop ticks from pressing the shaft (they fire volume). */
+        if (esp_timer_get_time() / 1000 < rot_guard_until_ms) {
+            enc_raw_evt_t dump;
+            while (xQueueReceive(s_queue, &dump, 0) == pdTRUE) {
+                if (dump == ENC_EVT_BTN_DOWN || dump == ENC_EVT_BTN_UP) {
+                    xQueueSendToFront(s_queue, &dump, 0);
+                    break;
+                }
+            }
+            continue;
+        }
         int delta = (evt == ENC_EVT_CW) ? +1 : -1;
         enc_raw_evt_t next;
         while (xQueueReceive(s_queue, &next, 0) == pdTRUE) {

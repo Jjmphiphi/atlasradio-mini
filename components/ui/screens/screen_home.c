@@ -167,7 +167,7 @@ static void strip_update(void)
     // ui_label_set_text() skips an unchanged string — without that, every state
     // change would restart the scroll animation of an overlong station/title.
     ui_label_set_text(s_strip_station, station);
-    ui_label_set_text(s_strip_title, title);
+    if (s_strip_title) ui_label_set_text(s_strip_title, title);
 }
 
 // ── network info (IP + "<hostname>.local") ──────────────────────────────────
@@ -309,6 +309,10 @@ static void home_create(lv_obj_t *parent)
     lv_obj_align_to(s_strip_station, s_strip, LV_ALIGN_TOP_MID,
                     p->clock_strip_station_x, p->clock_strip_station_y);
 
+#if defined(UI_PROFILE_MONO_128X64)
+    // One strip line on 64 px: a second scrolling title sits on the station.
+    s_strip_title = NULL;
+#else
     s_strip_title = lv_label_create(parent);
     lv_label_set_long_mode(s_strip_title, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_style_text_font(s_strip_title, p->clock_strip_title_font, LV_PART_MAIN);
@@ -321,6 +325,7 @@ static void home_create(lv_obj_t *parent)
         + lv_obj_get_style_pad_right(s_strip_title, LV_PART_MAIN));
     lv_obj_align_to(s_strip_title, s_strip, LV_ALIGN_TOP_MID,
                     p->clock_strip_title_x, p->clock_strip_title_y);
+#endif
 
     strip_update();
 
@@ -425,6 +430,11 @@ static void home_on_input(ui_input_t input)
                 break;
             }
 #endif
+#if defined(BOARD_S3_SUPERMINI)
+            screen_playlist_set_return(SCREEN_RADIO);
+            ui_navigate(SCREEN_PLAYLIST);
+            break;
+#endif
             ui_nav_ring_next(SCREEN_HOME);
             break;
         case UI_INPUT_SWIPE_RIGHT:
@@ -434,7 +444,10 @@ static void home_on_input(ui_input_t input)
             ui_nav_ring_prev(SCREEN_HOME);
             break;
         case UI_INPUT_ENCODER_LONG_PRESS:
-#if defined(UI_PROFILE_MONO_128X64)
+#if defined(BOARD_S3_SUPERMINI)
+            // Home is not in the Mini ring; hold jumps to Radio now-playing.
+            settings_set_screen(SCREEN_RADIO);
+#elif defined(UI_PROFILE_MONO_128X64)
             screen_playlist_set_return(SCREEN_RADIO);
             ui_navigate(SCREEN_PLAYLIST);
 #else
@@ -478,14 +491,18 @@ static void home_apply_theme(void)
 
     if (s_strip) {
         lv_obj_set_style_bg_color(s_strip, lv_color_hex(th->bg_secondary), LV_PART_MAIN);
-        lv_obj_set_style_text_color(s_strip_station,
-            lv_color_hex(p->clock_strip_station_color ? p->clock_strip_station_color
-                                                      : th->text_secondary), LV_PART_MAIN);
-        lv_obj_set_style_text_color(s_strip_title,
-            lv_color_hex(p->clock_strip_title_color ? p->clock_strip_title_color
-                                                    : th->text_muted), LV_PART_MAIN);
-        ui_label_scrim(s_strip_station, p->clock_label_bg_opa);
-        ui_label_scrim(s_strip_title, p->clock_label_bg_opa);
+        if (s_strip_station) {
+            lv_obj_set_style_text_color(s_strip_station,
+                lv_color_hex(p->clock_strip_station_color ? p->clock_strip_station_color
+                                                          : th->text_secondary), LV_PART_MAIN);
+            ui_label_scrim(s_strip_station, p->clock_label_bg_opa);
+        }
+        if (s_strip_title) {
+            lv_obj_set_style_text_color(s_strip_title,
+                lv_color_hex(p->clock_strip_title_color ? p->clock_strip_title_color
+                                                        : th->text_muted), LV_PART_MAIN);
+            ui_label_scrim(s_strip_title, p->clock_label_bg_opa);
+        }
     }
 
     mode_indicator_apply_theme();

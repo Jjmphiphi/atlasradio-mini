@@ -1,4 +1,5 @@
 #include "vol_overlay_widget.h"
+#include "ui_profile.h"
 #include "theme.h"
 #include "fonts/ui_fonts.h"
 #include <stdio.h>
@@ -38,6 +39,12 @@ void vol_overlay_show(lv_obj_t *parent, int vol, bool large)
     if (!parent) return;
     const ui_theme_colors_t *th = theme_get();
 
+    // 72 px digits are taller than a 64 px OLED and the font has no '%', so
+    // "50%" wrapped onto several lines and ate the screen. Keep one line.
+    if (large && (VOL_OVERLAY_W_LARGE > DISPLAY_WIDTH ||
+                  VOL_OVERLAY_H_LARGE > DISPLAY_HEIGHT))
+        large = false;
+
     // Parent changed (screen swap) or size variant changed — rebuild.
     if (s_overlay && (lv_obj_get_parent(s_overlay) != parent || s_large != large)) {
         vol_overlay_hide();
@@ -55,13 +62,14 @@ void vol_overlay_show(lv_obj_t *parent, int vol, bool large)
         lv_obj_set_style_border_color(s_overlay, lv_color_hex(th->accent), LV_PART_MAIN);
         lv_obj_set_style_border_width(s_overlay, 2, LV_PART_MAIN);
         lv_obj_set_style_radius(s_overlay, 8, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(s_overlay, 12, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(s_overlay, large ? 12 : 4, LV_PART_MAIN);
         lv_obj_clear_flag(s_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
         if (large) lv_obj_set_size(s_overlay, VOL_OVERLAY_W_LARGE, VOL_OVERLAY_H_LARGE);
         else       lv_obj_set_size(s_overlay, VOL_OVERLAY_W_SMALL, VOL_OVERLAY_H_SMALL);
 
         s_label = lv_label_create(s_overlay);
+        lv_label_set_long_mode(s_label, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_font(s_label,
             large ? &lv_font_montserrat_72 : &lv_font_montserrat_12_eu,
             LV_PART_MAIN);

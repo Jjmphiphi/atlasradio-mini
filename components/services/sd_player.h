@@ -20,7 +20,7 @@ const char *sd_player_track(int index);     // file name, or NULL
 int  sd_player_folder_count(void);          // subfolders in the last scan
 const char *sd_player_folder(int index);    // subfolder name, or NULL
 const char *sd_player_dir(void);            // last scanned dir
-const char *sd_player_root(void);           // browse root (default music folder)
+const char *sd_player_root(void);           // browse root (card mount point)
 
 // --- Playback ---------------------------------------------------------------
 // Play a specific file (absolute path under the SD mount). Its folder becomes

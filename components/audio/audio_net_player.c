@@ -11,6 +11,7 @@
 #include "freertos/idf_additions.h"   // xTaskCreatePinnedToCoreWithCaps
 #include <string.h>
 #include <strings.h>
+#include <sys/types.h>
 
 static const char *TAG = "AUDIO_NET";
 
@@ -133,6 +134,97 @@ static audio_codec_t detect_codec_from_url(const char *url)
     }
 
     return AUDIO_CODEC_UNKNOWN;
+}
+
+
+// Radio France nginx and Fun Radio's Audiomeans Icecast answer HTTP/1.1 with
+// Transfer-Encoding: chunked. The prebuilt icy raw socket does not dechunk, so
+// hex chunk sizes land in the MP3 decoder → stutter / ERROR. HTTP/1.0 makes
+// those servers send a plain identity body. The reader formats
+// "GET %s HTTP/1.1" and calls lwip_send; rewrite only ICY stream requests.
+#define ICY_HTTP10_WRAP_MAX 1536
+
+static const char *find_bytes(const char *hay, size_t n, const char *needle, size_t nlen)
+{
+    if (!hay || !needle || n < nlen) return NULL;
+    for (size_t i = 0; i + nlen <= n; i++) {
+        if (memcmp(hay + i, needle, nlen) == 0) return hay + i;
+    }
+    return NULL;
+}
+
+ssize_t __real_lwip_send(int s, const void *data, size_t size, int flags);
+
+ssize_t __wrap_lwip_send(int s, const void *data, size_t size, int flags)
+{
+    const char *req = (const char *)data;
+    if (data && size >= 24 && size < ICY_HTTP10_WRAP_MAX &&
+        req[0] == 'G' && req[1] == 'E' && req[2] == 'T' && req[3] == ' ' &&
+        find_bytes(req, size, "Icy-MetaData:", 13) &&
+        find_bytes(req, size, "HTTP/1.1", 8)) {
+        char tmp[ICY_HTTP10_WRAP_MAX];
+        memcpy(tmp, req, size);
+        char *ver = (char *)find_bytes(tmp, size, "HTTP/1.1", 8);
+        if (ver) {
+            ver[7] = '0';
+            return __real_lwip_send(s, tmp, size, flags);
+        }
+    }
+    return __real_lwip_send(s, data, size, flags);
+}
+
+
+// Fun Radio's historic host 302s to streamer-N.rtl.fr, which now 404s.
+// Audiomeans still serves the 128 kbps MP3 over HTTP.
+#define FUN_RADIO_URL \
+    "http://streaming-ice.audiomeans.fr/rtl/feed-funradio-mp3-128" \
+    "?listen=webCwsBCggNCQgLDQUGBAcGBg"
+
+static bool is_radiofrance_host(const char *url)
+{
+    return strcasestr(url, "radiofrance.fr") ||
+           strcasestr(url, "fipradio.fr") ||
+           strcasestr(url, "franceinfo.fr") ||
+           strcasestr(url, "franceinter.fr") ||
+           strcasestr(url, "francebleu.fr");
+}
+
+// Shoutcast CDN (RTL 102.5 etc.): HTTPS is 320 kbps + TLS + chunked. The same
+// mount answers HTTP, and HTTP/1.0 (see __wrap_lwip_send) drops chunked so the
+// Mini is not decoding TLS and hex chunk sizes at the same time.
+static bool is_shoutcast_cdn(const char *url)
+{
+    return strcasestr(url, "shoutcast.com");
+}
+
+static bool is_funradio_url(const char *url)
+{
+    if (strcasestr(url, "audiomeans.fr") && strcasestr(url, "funradio")) {
+        return false;   // already on the working host
+    }
+    if (strcasestr(url, "funradio.fr")) return true;
+    return strcasestr(url, "fun-1-44") &&
+           (strcasestr(url, "rtl.fr") || strcasestr(url, "funradio"));
+}
+
+static void rewrite_known_streams(char *url, size_t url_sz)
+{
+    if (!url || !url[0]) return;
+
+    // Same Mini TLS trap as playradio: Radio France HTTPS works in curl but
+    // the handshake plus 48 kHz MP3 leaves too little internal RAM for the
+    // decoder. Their Icecast still speaks plain HTTP on the same path.
+    if (strncasecmp(url, "https://", 8) == 0 &&
+        (is_radiofrance_host(url) || is_shoutcast_cdn(url))) {
+        memmove(url + 4, url + 5, strlen(url + 5) + 1);
+        ESP_LOGW(TAG, "stream: HTTPS→HTTP %s", url);
+    }
+
+    if (is_funradio_url(url)) {
+        strncpy(url, FUN_RADIO_URL, url_sz - 1);
+        url[url_sz - 1] = 0;
+        ESP_LOGW(TAG, "Fun Radio: rewrite %s", url);
+    }
 }
 
 
@@ -534,6 +626,8 @@ void audio_net_player_play(const char *url, bool finite, uint32_t offset_bytes)
         memmove(s_url + 4, s_url + 5, strlen(s_url + 5) + 1);
         ESP_LOGW(TAG, "playradio: HTTPS→HTTP %s", s_url);
     }
+
+    rewrite_known_streams(s_url, sizeof(s_url));
 
     s_offset_bytes = offset_bytes;
     s_codec = codec;

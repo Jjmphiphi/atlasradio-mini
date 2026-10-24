@@ -2,6 +2,8 @@
 #include "ui_events.h"
 #include "ui_screen.h"
 #include "ui_manager.h"
+#include "ui_nav.h"
+#include "defines.h"
 #include "ui_list_widget.h"
 #include "playlist.h"
 #include "radio_service.h"
@@ -211,6 +213,10 @@ static void playlist_on_input(ui_input_t input)
             break;
 
         case UI_INPUT_ENCODER_LONG_PRESS:
+#if defined(BOARD_S3_SUPERMINI)
+            ui_nav_ring_next(SCREEN_PLAYLIST);
+            break;
+#endif
         case UI_INPUT_SWIPE_RIGHT:
         case UI_INPUT_SWIPE_LEFT:
             // Exit without changing the station

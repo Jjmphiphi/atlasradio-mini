@@ -11,13 +11,13 @@ extern "C" {
 // Home-screen navigation ring
 // --------------------------------------------------------------------------
 //
-// The set of "home" screens the user cycles through with a swipe or a short
-// encoder press. The order and visibility live in a single table in ui_nav.c
-// (s_ring) — edit that table to add/remove/reorder home screens. Hidden
-// entries (e.g. BT without bt_show_screen, MQTT without enabled) are skipped.
+// The set of "home" screens the user cycles through. On the Super Mini a long
+// press walks the ring (click picks: station, folder, track). On the larger
+// boards a short press / swipe still walks it. Order and visibility live in
+// ui_nav.c (s_ring). Hidden entries are skipped.
 //
-// Sub-screens (playlist, settings, eq, events) are NOT part of the ring; they
-// keep their own parent/back navigation inside their on_input handlers.
+// Super Mini ring is Radio → Playlist → SD (Home is not in it: the 128×64
+// clock overlay stacked station + title). Other sub-screens stay out of it.
 
 /** Navigate to the next visible ring screen after `from` (persists via
  *  settings_set_screen). No-op if `from` is not a ring member. Wraps around. */

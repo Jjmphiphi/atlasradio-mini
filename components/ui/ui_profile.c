@@ -149,8 +149,8 @@ static const ui_profile_t k_defaults = {
     .sd_event_indic_y          = 8,
     .sd_show_weather           = false,
     .sd_weather_font           = &lv_font_montserrat_12_eu,
-    .sd_show_ctrl_overlay      = true,
-    .bt_show_ctrl_overlay      = true,
+    .sd_show_ctrl_overlay      = false,  // no touch; 56 px buttons do not fit 64 px
+    .bt_show_ctrl_overlay      = false,
 
     .playlist_header_h         = 16,   // yellow band
     .playlist_header_hide      = false,
